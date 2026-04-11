@@ -1,0 +1,59 @@
+##############################################################################
+# This is the top-level .gitignore file for the WRF model                    #
+#                                                                            #
+# Filenames and wildcards added below will not be tracked by git in any      #
+# directory in the repository                                                #
+#                                                                            #
+# Ignored file types should include executables, build-time temporary files, #
+# and other files which should not ever be added to the code repository.     #
+#                                                                            #
+# USE CAUTION WHEN ADDING WILDCARDS, as some builds use different filename   #
+# conventions than others                                                    #
+##############################################################################
+*.exe
+*.o
+*.mod
+*.a
+configure.wrf*
+*.backup
+*.f90
+
+# Out-of-source build locations
+_build*
+build-*/
+wrf_config.cmake
+
+# Local agent/editor scratch
+.codex
+
+# Local experiment run directories
+run_*/
+.remote-bundles/
+gpt-5.4-pro-responses/
+nul
+tools/remote/__pycache__/
+gpu-port-checkpoints/nested-smoke-2021-mpi/
+gpu-port-checkpoints/nested-smoke-2021-mpi-short/
+gpu-port-checkpoints/nested-smoke-2021-mpi-short-tight/
+gpu-port-checkpoints/nested-smoke-2021-mpi-short-feedback/
+gpu-port-checkpoints/nested-smoke-2021-mpi-short-pd-h5-edges/
+gpu-port-checkpoints/nested-smoke-2021-packtest/
+gpu-port-checkpoints/nested-overnight-2021-mpi/
+gpu-port-checkpoints/overnight-single-domain-2021/
+gpu-port-checkpoints/*.launch.log
+
+# Executables when not featuring .exe suffix
+ndown
+real
+tc
+ideal
+wrf
+
+# Model inputs/outputs
+wrfbdy_d*
+wrfinput_d*
+wrfout_d*
+*.nc
+rsl.out.*
+rsl.error.*
+*.log
