@@ -1,17 +1,17 @@
 # WRF-ARW GPU Port Segment Report
 
 Created: 2026-04-11 PDT
-Scope: Consolidated technical segment report for the current GPU-port campaign, with overnight validation runs in progress and intentionally excluded from final conclusions.
+Scope: Consolidated technical segment report for the current GPU-port campaign through the published public checkpoint.
 
-Public-repo note: this report is committed as a checkpoint document, but many raw run directories referenced here are local validation artifacts and are intentionally not part of the public repository contents.
+Public-repo note: this report is committed as a checkpoint document, and the corresponding public snapshot is published at `https://github.com/FahrenheitResearch/wrf-openacc-arw`. Many raw run directories referenced here are local validation artifacts and are intentionally not part of the public repository contents.
 
 ## Abstract
 
-This segment moved the WRF-ARW GPU port from isolated GPU-enabled kernels toward phase-level device residency. The largest durable changes were: a real runtime residency layer in `frame/module_gpu_runtime.F`; materially reduced wrapper/staging overhead in the active 3 km physics stack; a repeatable NVHPC+MPI+OpenACC nested lane; a functioning remote two-node validation workflow; and new scalar/advection restructuring in `dyn_em/module_em.F` and `dyn_em/module_advect_em.F`.
+This segment moved the WRF-ARW GPU port from isolated GPU-enabled kernels toward phase-level device residency. The largest durable changes were: a real runtime residency layer in `frame/module_gpu_runtime.F`; materially reduced wrapper/staging overhead in the active 3 km physics stack; a repeatable NVHPC+MPI+OpenACC nested lane; a functioning remote two-node validation workflow; and new scalar/advection restructuring in `dyn_em/module_em.F` and `dyn_em/module_advect_em.F`, including the current positive-definite `h5/v3` degraded-edge-band seam.
 
-The strongest validated performance result for the active short single-domain stack remains the `run_gpu_batch59_nvhpc_fullactive_stack` result at `real 154.62 s`, down from the old control `run_gpu_batch53_nvhpc_muts_physbc` at `real 207.64 s`, a `25.54%` wall-time improvement. More recent validated short runs improved the refreshed default remote lane further to `00:06:13` (`373 s`) on the current binary. Nested MPI/OpenACC validation also progressed from short smokes to a completed one-hour, two-domain run through `2021-12-30_18:00:00`.
+The strongest validated performance result for the older local short single-domain stack remains `run_gpu_batch59_nvhpc_fullactive_stack` at `real 154.62 s`, down from the old control `run_gpu_batch53_nvhpc_muts_physbc` at `real 207.64 s`, a `25.54%` wall-time improvement. The final remote public-checkpoint validations for this segment finished at `128 s` on the default NVHPC/OpenACC lane and `376 s` on the experimental host-fence lane. Nested MPI/OpenACC validation progressed from short smokes to a completed one-hour, two-domain run through `2021-12-30_18:00:00`, and the final short nested validation for the published checkpoint passed cleanly through `2021-12-30_17:05:00`.
 
-This is not a complete GPU WRF. The model is still architecturally hybrid: selected dynamics, surface/PBL, microphysics, and radiation fields can remain resident, but the timestep still crosses back to host in major nonhydro/scalar and I/O/nesting phases. The dominant remaining architecture problem is therefore a genuinely GPU-owned nonhydro/scalar evolution path rather than isolated loop offload. The newest overnight runs are still in progress and are therefore treated as pending evidence, not final results.
+This is not a complete GPU WRF. The model is still architecturally hybrid: selected dynamics, surface/PBL, microphysics, and radiation fields can remain resident, but the timestep still crosses back to host in major nonhydro/scalar and I/O/nesting phases. The dominant remaining architecture problem is therefore a genuinely GPU-owned nonhydro/scalar evolution path rather than isolated loop offload. The segment now ends at a real public checkpoint rather than with runs still pending.
 
 ## Executive Status
 
@@ -210,6 +210,8 @@ These changes removed a concrete NVHPC+MPI blocker and helped the MPI/OpenACC la
 | `run_gpu_batch65_nvhpc_postwsm6revert` | `154.95 s` | restored fast control after WSM6 regression |
 | `20260411T0534Z-default` | `392 s` | validated remote short default (`00:06:32`) |
 | `20260411T0559Z-default` | `373 s` | validated remote short default on current scalar-cleanup binary (`00:06:13`) |
+| `20260411T1723Z-default` | `128 s` | final remote short default at the public checkpoint (`00:02:08`) |
+| `20260411T1723Z-hostfences` | `376 s` | final remote short experimental host-fence validation (`00:06:16`) |
 
 ### Normalized single-domain metrics
 
@@ -227,8 +229,10 @@ For the single-domain runs in this segment, the key normalized quantities are:
 | `run_gpu_batch65_nvhpc_postwsm6revert` | 5 | `154.95 s` | `30.99` | `1.94x` | `1.34x` speedup, `25.37%` faster |
 | `20260411T0534Z-default` | 15 | `392 s` | `26.13` | `2.30x` | remote default reference |
 | `20260411T0559Z-default` | 15 | `373 s` | `24.87` | `2.41x` | `1.05x` speedup, `4.85%` faster than prior remote default |
+| `20260411T1723Z-default` | 5 | `128 s` | `25.60` | `2.34x` | final remote public-checkpoint control |
+| `20260411T1723Z-hostfences` | 5 | `376 s` | `75.20` | `0.80x` | correctness-valid experimental ownership lane |
 
-The validated short fast lane therefore improved from `41.53` wall seconds per simulated minute on the old control to `30.92` on the best current short case, while the refreshed remote default lane improved from `26.13` to `24.87` wall seconds per simulated minute across two consecutive validated binaries.
+The validated short fast lane therefore improved from `41.53` wall seconds per simulated minute on the old control to `30.92` on the best earlier local short case, while the final remote default public-checkpoint lane ran at `25.60` wall seconds per simulated minute.
 
 ### Single-domain longer fast-lane validation
 
@@ -242,6 +246,7 @@ The validated short fast lane therefore improved from `41.53` wall seconds per s
 |---|---:|---|
 | [nested-smoke-2021-mpi-short-tight](../gpu-port-checkpoints/nested-smoke-2021-mpi-short-tight) | pass to `17:05` | validated tighter interp/force nesting path |
 | [nested-smoke-2021-mpi-short-feedback](../gpu-port-checkpoints/nested-smoke-2021-mpi-short-feedback) | pass to `17:05` | validated feedback-specific narrowing |
+| `nested-smoke-2021-mpi-short-pd-h5-edges` | pass to `17:05` | validated final PD `h5/v3` degraded-edge-band checkpoint |
 | [nested-smoke-2021-mpi](../gpu-port-checkpoints/nested-smoke-2021-mpi) | pass to `18:00` | completed one-hour nested MPI/OpenACC run |
 
 Concrete evidence for the one-hour nested run:
@@ -254,7 +259,7 @@ In the recovered end-of-run window from `17:59:00` to `18:00:00`, domain 2 timin
 
 ### Experimental advection status
 
-The newest divergence-only `advect_scalar_pd` seam is **not** yet a completed validated result. It survived early outputs in the experimental lane but was preempted once, then relaunched as the corrected divergence-only overnight run. It should be treated as provisional until the run finishes.
+The current positive-definite scalar advection checkpoint is now stronger than “provisional.” The `h5/v3` degraded-edge-band seam in `advect_scalar_pd` rebuilt cleanly in all NVHPC lanes, held the default single-domain lane at `128 s`, completed the experimental host-fence lane at `376 s`, and passed the nested MPI/OpenACC short smoke through `2021-12-30_17:05:00`. It should still be treated as an ownership/correctness step rather than a performance win.
 
 ## Plot and Evidence Artifacts
 
@@ -279,13 +284,18 @@ The newest divergence-only `advect_scalar_pd` seam is **not** yet a completed va
 3. A naive GPU limiter for `advect_scalar_pd` is unsafe because of shared-face races in the face-flux rescaling loop; the first safe GPU cut is the post-limiter divergence region, not the limiter itself.
 4. Caller-local scratch ownership above scalar/advection remains a serious missing layer.
 
-## Current Working-Tree Scope
+## Published Checkpoint Scope
 
-Current tracked source delta from the pre-segment baseline is approximately:
+The public checkpoint that closed this segment was published at:
 
-- `31` modified tracked files
-- `4794` insertions
-- `1346` deletions
+- `https://github.com/FahrenheitResearch/wrf-openacc-arw`
+- public snapshot commit: `063e077`
+
+The curated publish scope for that snapshot was:
+
+- `53` tracked files changed
+- `8384` insertions
+- `1391` deletions
 
 The two biggest current hotspots are:
 
@@ -297,42 +307,26 @@ The two biggest current hotspots are:
 - [module_sf_noahdrv.F](../phys/module_sf_noahdrv.F)
 - [module_sf_noahlsm.F](../phys/module_sf_noahlsm.F)
 
-## Pending Overnight Segment-Finish Runs
+## Overnight-Run Closeout
 
-These are intentionally *not* interpreted as final results yet.
+The three attempted overnight runs did not provide valid long-horizon evidence because they were configured past the available lateral boundary forcing horizon and all stopped at the same `wrfbdy_d01` limit. That failure mode is now guarded in:
 
-### Local
+- [validate_wrf_forcing_horizon.py](../tools/validate_wrf_forcing_horizon.py)
+- [run_nested_smoke_2021_mpi.sh](../gpu-port-checkpoints/run_nested_smoke_2021_mpi.sh)
+- [package_wrf_runtime_bundle.sh](../tools/remote/package_wrf_runtime_bundle.sh)
 
-- Nested MPI/OpenACC overnight run:
-  - launcher: [nested-overnight-2021-mpi.launch.log](../gpu-port-checkpoints/nested-overnight-2021-mpi.launch.log)
-  - case dir: [nested-overnight-2021-mpi](../gpu-port-checkpoints/nested-overnight-2021-mpi)
-  - target: `6` simulated hours
+That forcing-horizon fix is part of the final published checkpoint.
 
-### Node 1
+## Immediate Next Steps After This Checkpoint
 
-- Default NVHPC overnight single-domain run
-  - run id: `20260411T0720Z-default-overnight`
-  - last known state at report time: `running`, `wrfout_count=1`, elapsed `00:02:35`
-
-### Node 2
-
-- Experimental host-fence overnight single-domain run
-  - run id: `20260411T0720Z-hostfences-overnight`
-  - last known state at report time: `running`, `wrfout_count=1`, elapsed `00:02:42`
-
-## Immediate Next Steps After Overnight Results
-
-1. Read out the three overnight runs and classify them into:
-   - keep
-   - keep but performance-regressed
-   - revert
-2. If the experimental PD divergence seam survives, widen ownership one level up in `rk_scalar_tend_member` around:
+1. Widen caller-side ownership one level up from the current `advect_scalar_pd` seam in `rk_scalar_tend_member` around:
    - `wwE`
    - `advect_tend`
    - `h_tendency`
    - `z_tendency`
+2. Return to a coarse `small_step_em` / `solve_em` ownership cut instead of more micro-fence work.
 3. Keep nesting work as a guardrail, but continue to bias effort toward core GPU ownership rather than over-investing in comm plumbing too early.
-4. Continue using the default remote lane as the fast control and the host-fence lane as the risky advection/dynamics lane.
+4. Use the published `wrf-openacc-arw` repo as the canonical collaboration point for the next session.
 
 ## Bottom Line
 
@@ -346,4 +340,4 @@ The strongest outcomes were:
 - a cleaner scalar evolution path with the first bounded `advect_scalar_pd` seam
 - a repeatable remote validation workflow
 
-The segment did **not** finish the GPU port. But it ended in a much better place than it started, and the overnight runs now in progress are meaningful continuations of that trajectory rather than idle hardware burn.
+The segment did **not** finish the GPU port. But it ended in a much better place than it started, and it now closes at a real public checkpoint with validated default, experimental, and nested smoke paths rather than at an internal “runs still pending” pause.
