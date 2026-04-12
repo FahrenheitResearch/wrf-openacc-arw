@@ -31,15 +31,15 @@ That is the current public baseline. Broader physics coverage exists only in par
 
 | Lane | Case | Result |
 |---|---|---|
-| Default NVHPC/OpenACC | `20260411T1723Z-default` | `exit 0`, `6 wrfout`, `128 s` |
-| Experimental host-fence NVHPC/OpenACC | `20260411T1723Z-hostfences` | `exit 0`, `6 wrfout`, `376 s` |
-| Nested MPI/OpenACC short smoke | `nested-smoke-2021-mpi-short-pd-h5-edges` | `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` |
-| Nested MPI/OpenACC longer smoke | `nested-smoke-2021-mpi` | completed through `2021-12-30_18:00:00` |
+| Default NVHPC/OpenACC | `20260412T0151Z-default` | `exit 0`, `6 wrfout`, `113 s` |
+| Experimental host-fence NVHPC/OpenACC | `20260412T1620Z-hostfences-restore-calccoef` | `exit 0`, `6 wrfout`, `159 s` |
+| Nested MPI/OpenACC short smoke | `nested-smoke-2021-mpi-short-advancew-scratch` | `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing |
+| Nested MPI/OpenACC repeated 1-hour loop | `overnight-20260412` | six local repeated one-hour nested runs completed through `2021-12-30_18:00:00` |
 
 Derived single-domain checkpoint numbers for the current short control:
 
-- wall time per simulated minute: `25.6 s`
-- real-time factor: about `2.34x`
+- wall time per simulated minute: about `22.6 s`
+- real-time factor: about `2.65x`
 
 ## What Is Working
 
@@ -54,21 +54,21 @@ Derived single-domain checkpoint numbers for the current short control:
 ## What Is Experimental
 
 - The `WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_*` / host-fence lane is for ownership experiments, not production timing.
-- The newest `advect_scalar_pd` ownership cuts are kept because they are architecturally correct, not because they are already fast.
+- The newest `advect_scalar_pd` ownership cuts and the retained `advance_w` scratch hoist are kept because they are architecturally correct, not because every intermediate experiment was a speed win.
 - Nested exchange ownership below mediation is still not fully GPU-owned.
 
 ## Current Blunt Estimates
 
-- full literal WRF GPU port: about `20%`
-- useful GPU-first active 3 km stack: about `60%`
-- production-capable nested `25 km -> 9 km -> 3 km` path: about `45%`
+- full literal WRF GPU port: about `15%`
+- useful GPU-first active 3 km stack: about `55%`
+- production-capable nested `25 km -> 9 km -> 3 km` path: about `30%`
 
 ## Immediate Next Technical Targets
 
-- finish deeper caller-side ownership above the new `advect_scalar_pd` seam
-- return to coarse `small_step_em` / `solve_em` ownership instead of micro-fences
+- finish the next coarse nonhydro `small_step_em` / `solve_em` ownership cut around the post-`sumflux` boundary-update, second-`calc_p_rho`, and `p`-halo segment
+- keep deeper caller-side ownership work above the `advect_scalar_pd` seam where it feeds the active positive-definite moisture path
 - narrow nested host staging further and eventually push below mediation into `RSL_LITE`
-- widen validated physics coverage beyond the current active stack
+- widen validated physics coverage beyond the current active stack only after the core small-step ownership path is less hybrid
 
 ## Deeper Report
 

@@ -122,19 +122,19 @@ CONTAINS
       RETURN
     END IF
 
-    CALL smallstep_bc3d_open_copy( ph_2, MIN(kde,kte), config_flags,     &
+    CALL smallstep_bc3d_open_copy( ph_2, 'w', MIN(kde,kte), config_flags, &
                                    ids,ide, jds,jde,                      &
                                    ims,ime, jms,jme, kms,kme,             &
                                    ips,ipe, jps,jpe, kps,kpe,             &
                                    its,ite, jts,jte, kts,kte )
 
-    CALL smallstep_bc3d_open_copy( al, MAX(1,MIN(kde-1,kte)), config_flags, &
+    CALL smallstep_bc3d_open_copy( al, 'p', MAX(1,MIN(kde-1,kte)), config_flags, &
                                    ids,ide, jds,jde,                        &
                                    ims,ime, jms,jme, kms,kme,               &
                                    ips,ipe, jps,jpe, kps,kpe,               &
                                    its,ite, jts,jte, kts,kte )
 
-    CALL smallstep_bc3d_open_copy( p, MAX(1,MIN(kde-1,kte)), config_flags,  &
+    CALL smallstep_bc3d_open_copy( p, 'p', MAX(1,MIN(kde-1,kte)), config_flags, &
                                    ids,ide, jds,jde,                        &
                                    ims,ime, jms,jme, kms,kme,               &
                                    ips,ipe, jps,jpe, kps,kpe,               &
@@ -194,6 +194,41 @@ CONTAINS
                                    its,ite, jts,jte )
 
   END SUBROUTINE set_physical_bc_smallstep_scalar2d_t
+
+  SUBROUTINE set_physical_bc_smallstep_scalar3d( dat, variable_in,            &
+                                                 k_end_local, config_flags,    &
+                                                 ids,ide, jds,jde, kds,kde,    &
+                                                 ims,ime, jms,jme, kms,kme,    &
+                                                 ips,ipe, jps,jpe, kps,kpe,    &
+                                                 its,ite, jts,jte, kts,kte )
+
+    IMPLICIT NONE
+
+    INTEGER, INTENT(IN) :: ids,ide, jds,jde, kds,kde
+    INTEGER, INTENT(IN) :: ims,ime, jms,jme, kms,kme
+    INTEGER, INTENT(IN) :: ips,ipe, jps,jpe, kps,kpe
+    INTEGER, INTENT(IN) :: its,ite, jts,jte, kts,kte
+    INTEGER, INTENT(IN) :: k_end_local
+    CHARACTER, INTENT(IN) :: variable_in
+    REAL, DIMENSION( ims:ime , kms:kme , jms:jme ), INTENT(INOUT) :: dat
+    TYPE( grid_config_rec_type ), INTENT(IN) :: config_flags
+
+    IF ( .NOT. smallstep_phys_bc_tail_supported( config_flags ) ) THEN
+      CALL set_physical_bc3d( dat, variable_in, config_flags,                 &
+                              ids, ide, jds, jde, kds, kde,                   &
+                              ims, ime, jms, jme, kms, kme,                   &
+                              ips, ipe, jps, jpe, kps, kpe,                   &
+                              its, ite, jts, jte, kts, kte )
+      RETURN
+    END IF
+
+    CALL smallstep_bc3d_open_copy( dat, variable_in, k_end_local, config_flags, &
+                                   ids,ide, jds,jde,                           &
+                                   ims,ime, jms,jme, kms,kme,                  &
+                                   ips,ipe, jps,jpe, kps,kpe,                  &
+                                   its,ite, jts,jte, kts,kte )
+
+  END SUBROUTINE set_physical_bc_smallstep_scalar3d
 
   SUBROUTINE smallstep_bc2d_open_copy( dat, config_flags,                   &
                                        ids,ide, jds,jde,                    &
@@ -369,7 +404,7 @@ CONTAINS
 
   END SUBROUTINE smallstep_bc2d_open_copy
 
-  SUBROUTINE smallstep_bc3d_open_copy( dat, k_end_local, config_flags,      &
+  SUBROUTINE smallstep_bc3d_open_copy( dat, variable_in, k_end_local, config_flags, &
                                        ids,ide, jds,jde,                    &
                                        ims,ime, jms,jme, kms,kme,           &
                                        ips,ipe, jps,jpe, kps,kpe,           &
@@ -382,10 +417,22 @@ CONTAINS
     INTEGER, INTENT(IN) :: ips,ipe, jps,jpe, kps,kpe
     INTEGER, INTENT(IN) :: its,ite, jts,jte, kts,kte
     INTEGER, INTENT(IN) :: k_end_local
+    CHARACTER, INTENT(IN) :: variable_in
     REAL, DIMENSION( ims:ime , kms:kme , jms:jme ), INTENT(INOUT) :: dat
     TYPE( grid_config_rec_type ), INTENT(IN) :: config_flags
 
-    INTEGER :: i, j, k, i_start, i_end
+    CHARACTER :: variable
+    INTEGER :: i, j, k, i_start, i_end, istag, jstag
+
+    variable = variable_in
+    IF ( variable_in .ge. 'A' .and. variable_in .le. 'Z' ) THEN
+      variable = CHAR( ICHAR(variable_in) - ICHAR('A') + ICHAR('a') )
+    END IF
+
+    istag = -1
+    jstag = -1
+    IF ( (variable == 'u') .OR. (variable == 'x') ) istag = 0
+    IF ( (variable == 'v') .OR. (variable == 'y') ) jstag = 0
 
     IF ( config_flags%periodic_x ) THEN
       IF ( ( ids == ips ) .AND. ( ide == ipe ) ) THEN
@@ -393,7 +440,7 @@ CONTAINS
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
 !$acc parallel loop collapse(3) present(dat)
 #endif
-          DO j = MAX(jds,jts-1), MIN(jte+1,jde-1)
+          DO j = MAX(jds,jts-1), MIN(jte+1,jde+jstag)
           DO k = kts, k_end_local
           DO i = 0, -(bdyzone-1), -1
             dat(ids+i-1,k,j) = dat(ide+i-1,k,j)
@@ -406,10 +453,10 @@ CONTAINS
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
 !$acc parallel loop collapse(3) present(dat)
 #endif
-          DO j = MAX(jds,jts-1), MIN(jte+1,jde-1)
+          DO j = MAX(jds,jts-1), MIN(jte+1,jde+jstag)
           DO k = kts, k_end_local
-          DO i = 1, bdyzone
-            dat(ide+i-1,k,j) = dat(ids+i-1,k,j)
+          DO i = -istag, bdyzone
+            dat(ide+i+istag,k,j) = dat(ids+i+istag,k,j)
           END DO
           END DO
           END DO
@@ -421,7 +468,7 @@ CONTAINS
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
 !$acc parallel loop collapse(2) present(dat)
 #endif
-        DO j = jts-bdyzone, MIN(jte,jde-1)+bdyzone
+        DO j = jts-bdyzone, MIN(jte,jde+jstag)+bdyzone
         DO k = kts, k_end_local
           dat(ids-1,k,j) = dat(ids,k,j)
           dat(ids-2,k,j) = dat(ids,k,j)
@@ -432,21 +479,34 @@ CONTAINS
 
       IF ( ( config_flags%open_xe .OR. config_flags%specified .OR. config_flags%nested ) .AND. &
            ( ite == ide ) ) THEN
+        IF ( variable /= 'u' .AND. variable /= 'x' ) THEN
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
-!$acc parallel loop collapse(2) present(dat)
+          !$acc parallel loop collapse(2) present(dat)
 #endif
-        DO j = jts-bdyzone, MIN(jte,jde-1)+bdyzone
-        DO k = kts, k_end_local
-          dat(ide  ,k,j) = dat(ide-1,k,j)
-          dat(ide+1,k,j) = dat(ide-1,k,j)
-          dat(ide+2,k,j) = dat(ide-1,k,j)
-        END DO
-        END DO
+          DO j = jts-bdyzone, MIN(jte,jde+jstag)+bdyzone
+          DO k = kts, k_end_local
+            dat(ide  ,k,j) = dat(ide-1,k,j)
+            dat(ide+1,k,j) = dat(ide-1,k,j)
+            dat(ide+2,k,j) = dat(ide-1,k,j)
+          END DO
+          END DO
+        ELSE
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+          !$acc parallel loop collapse(2) present(dat)
+#endif
+          DO j = MAX(jds,jts-1)-bdyzone, MIN(jte+1,jde+jstag)+bdyzone
+          DO k = kts, k_end_local
+            dat(ide+1,k,j) = dat(ide,k,j)
+            dat(ide+2,k,j) = dat(ide,k,j)
+            dat(ide+3,k,j) = dat(ide,k,j)
+          END DO
+          END DO
+        END IF
       END IF
     END IF
 
     i_start = MAX(ids, its-1)
-    i_end   = MIN(ite+1, ide-1)
+    i_end   = MIN(ite+1, ide+istag)
     IF ( its == ids ) i_start = ims
     IF ( ite == ide ) i_end   = ime
 
@@ -469,10 +529,10 @@ CONTAINS
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
 !$acc parallel loop collapse(3) present(dat)
 #endif
-          DO j = 1, bdyzone
+          DO j = -jstag, bdyzone
           DO k = kts, k_end_local
           DO i = i_start, i_end
-            dat(i,k,jde+j-1) = dat(i,k,jds+j-1)
+            dat(i,k,jde+j+jstag) = dat(i,k,jds+j+jstag)
           END DO
           END DO
           END DO
@@ -495,16 +555,29 @@ CONTAINS
 
       IF ( ( config_flags%open_ye .OR. config_flags%polar .OR. config_flags%specified .OR. &
              config_flags%nested ) .AND. ( jte == jde ) ) THEN
+        IF ( variable /= 'v' .AND. variable /= 'y' ) THEN
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
-!$acc parallel loop collapse(2) present(dat)
+          !$acc parallel loop collapse(2) present(dat)
 #endif
-        DO k = kts, k_end_local
-        DO i = i_start, i_end
-          dat(i,k,jde  ) = dat(i,k,jde-1)
-          dat(i,k,jde+1) = dat(i,k,jde-1)
-          dat(i,k,jde+2) = dat(i,k,jde-1)
-        END DO
-        END DO
+          DO k = kts, k_end_local
+          DO i = i_start, i_end
+            dat(i,k,jde  ) = dat(i,k,jde-1)
+            dat(i,k,jde+1) = dat(i,k,jde-1)
+            dat(i,k,jde+2) = dat(i,k,jde-1)
+          END DO
+          END DO
+        ELSE
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+          !$acc parallel loop collapse(2) present(dat)
+#endif
+          DO k = kts, k_end_local
+          DO i = i_start, i_end
+            dat(i,k,jde+1) = dat(i,k,jde)
+            dat(i,k,jde+2) = dat(i,k,jde)
+            dat(i,k,jde+3) = dat(i,k,jde)
+          END DO
+          END DO
+        END IF
       END IF
     END IF
 
@@ -2529,6 +2602,131 @@ CONTAINS
 
    END SUBROUTINE spec_bdyupdate
 !------------------------------------------------------------------------
+
+   SUBROUTINE spec_bdyupdate_smallstep( field,      &
+                                        field_tend, dt,            &
+                                        variable_in, config_flags, &
+                                        spec_zone,                  &
+                                        ids,ide, jds,jde, kds,kde,  & ! domain dims
+                                        ims,ime, jms,jme, kms,kme,  & ! memory dims
+                                        ips,ipe, jps,jpe, kps,kpe,  & ! patch  dims
+                                        its,ite, jts,jte, kts,kte )
+
+!  Narrow small-step boundary-tendency update for the experimental device-owned
+!  acoustic path. The call sites keep the touched fields resident and this
+!  routine updates only the specified-region strips.
+
+      IMPLICIT NONE
+
+      INTEGER,      INTENT(IN   )    :: ids,ide, jds,jde, kds,kde
+      INTEGER,      INTENT(IN   )    :: ims,ime, jms,jme, kms,kme
+      INTEGER,      INTENT(IN   )    :: ips,ipe, jps,jpe, kps,kpe
+      INTEGER,      INTENT(IN   )    :: its,ite, jts,jte, kts,kte
+      INTEGER,      INTENT(IN   )    :: spec_zone
+      CHARACTER,    INTENT(IN   )    :: variable_in
+      REAL,         INTENT(IN   )    :: dt
+
+
+      REAL,  DIMENSION( ims:ime , kms:kme , jms:jme ), INTENT(INOUT) :: field
+      REAL,  DIMENSION( ims:ime , kms:kme , jms:jme ), INTENT(IN   ) :: field_tend
+      TYPE( grid_config_rec_type ) config_flags
+
+      CHARACTER  :: variable
+      INTEGER    :: i, j, k, ibs, ibe, jbs, jbe, itf, jtf, ktf
+      INTEGER    :: b_dist, b_limit
+      LOGICAL    :: periodic_x
+
+      periodic_x = config_flags%periodic_x
+
+      variable = variable_in
+
+      IF (variable == 'U') variable = 'u'
+      IF (variable == 'V') variable = 'v'
+      IF (variable == 'M') variable = 'm'
+      IF (variable == 'H') variable = 'h'
+
+      ibs = ids
+      ibe = ide-1
+      itf = min(ite,ide-1)
+      jbs = jds
+      jbe = jde-1
+      jtf = min(jte,jde-1)
+      ktf = kde-1
+      IF (variable == 'u') ibe = ide
+      IF (variable == 'u') itf = min(ite,ide)
+      IF (variable == 'v') jbe = jde
+      IF (variable == 'v') jtf = min(jte,jde)
+      IF (variable == 'm') ktf = kte
+      IF (variable == 'h') ktf = kte
+
+      IF (jts - jbs .lt. spec_zone) THEN
+! Y-start boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+        !$acc parallel loop collapse(2) present(field,field_tend) private(b_dist,b_limit)
+#endif
+        DO j = jts, min(jtf,jbs+spec_zone-1)
+          DO k = kts, ktf
+            b_dist = j - jbs
+            b_limit = b_dist
+            IF(periodic_x)b_limit = 0
+            DO i = max(its,b_limit+ibs), min(itf,ibe-b_limit)
+              field(i,k,j) = field(i,k,j) + dt*field_tend(i,k,j)
+            ENDDO
+          ENDDO
+        ENDDO
+      ENDIF
+
+      IF (jbe - jtf .lt. spec_zone) THEN
+! Y-end boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+        !$acc parallel loop collapse(2) present(field,field_tend) private(b_dist,b_limit)
+#endif
+        DO j = max(jts,jbe-spec_zone+1), jtf
+          DO k = kts, ktf
+            b_dist = jbe - j
+            b_limit = b_dist
+            IF(periodic_x)b_limit = 0
+            DO i = max(its,b_limit+ibs), min(itf,ibe-b_limit)
+              field(i,k,j) = field(i,k,j) + dt*field_tend(i,k,j)
+            ENDDO
+          ENDDO
+        ENDDO
+      ENDIF
+
+      IF(.NOT.periodic_x)THEN
+        IF (its - ibs .lt. spec_zone) THEN
+! X-start boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+          !$acc parallel loop collapse(2) present(field,field_tend) private(b_dist)
+#endif
+          DO i = its, min(itf,ibs+spec_zone-1)
+            DO k = kts, ktf
+              b_dist = i - ibs
+              DO j = max(jts,b_dist+jbs+1), min(jtf,jbe-b_dist-1)
+                field(i,k,j) = field(i,k,j) + dt*field_tend(i,k,j)
+              ENDDO
+            ENDDO
+          ENDDO
+        ENDIF
+
+        IF (ibe - itf .lt. spec_zone) THEN
+! X-end boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+          !$acc parallel loop collapse(2) present(field,field_tend) private(b_dist)
+#endif
+          DO i = max(its,ibe-spec_zone+1), itf
+            DO k = kts, ktf
+              b_dist = ibe - i
+              DO j = max(jts,b_dist+jbs+1), min(jtf,jbe-b_dist-1)
+                field(i,k,j) = field(i,k,j) + dt*field_tend(i,k,j)
+              ENDDO
+            ENDDO
+          ENDDO
+        ENDIF
+      ENDIF
+
+   END SUBROUTINE spec_bdyupdate_smallstep
+!------------------------------------------------------------------------
    SUBROUTINE spec_bdy_final   ( field, mu, c1, c2, msf,               &
                                 field_bdy_xs, field_bdy_xe,            &
                                 field_bdy_ys, field_bdy_ye,            &
@@ -2796,6 +2994,134 @@ CONTAINS
     ENDIF
 
    END SUBROUTINE zero_grad_bdy
+!------------------------------------------------------------------------
+
+   SUBROUTINE zero_grad_bdy_smallstep ( field,                     &
+                                        variable_in, config_flags, &
+                                        spec_zone,                  &
+                                        ids,ide, jds,jde, kds,kde,  & ! domain dims
+                                        ims,ime, jms,jme, kms,kme,  & ! memory dims
+                                        ips,ipe, jps,jpe, kps,kpe,  & ! patch  dims
+                                        its,ite, jts,jte, kts,kte )
+
+!  Narrow small-step zero-gradient boundary helper for the experimental
+!  device-owned acoustic path.
+
+      IMPLICIT NONE
+
+      INTEGER,      INTENT(IN   )    :: ids,ide, jds,jde, kds,kde
+      INTEGER,      INTENT(IN   )    :: ims,ime, jms,jme, kms,kme
+      INTEGER,      INTENT(IN   )    :: ips,ipe, jps,jpe, kps,kpe
+      INTEGER,      INTENT(IN   )    :: its,ite, jts,jte, kts,kte
+      INTEGER,      INTENT(IN   )    :: spec_zone
+      CHARACTER,    INTENT(IN   )    :: variable_in
+
+
+      REAL,  DIMENSION( ims:ime , kms:kme , jms:jme ), INTENT(INOUT) :: field
+      TYPE( grid_config_rec_type ) config_flags
+
+      CHARACTER  :: variable
+      INTEGER    :: i, j, k, ibs, ibe, jbs, jbe, itf, jtf, ktf, i_inner, j_inner
+      INTEGER    :: b_dist, b_limit
+      LOGICAL    :: periodic_x
+
+      periodic_x = config_flags%periodic_x
+
+      variable = variable_in
+
+      IF (variable == 'U') variable = 'u'
+      IF (variable == 'V') variable = 'v'
+
+      ibs = ids
+      ibe = ide-1
+      itf = min(ite,ide-1)
+      jbs = jds
+      jbe = jde-1
+      jtf = min(jte,jde-1)
+      ktf = kde-1
+      IF (variable == 'u') ibe = ide
+      IF (variable == 'u') itf = min(ite,ide)
+      IF (variable == 'v') jbe = jde
+      IF (variable == 'v') jtf = min(jte,jde)
+      IF (variable == 'w') ktf = kde
+
+      IF (jts - jbs .lt. spec_zone) THEN
+! Y-start boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+        !$acc parallel loop collapse(2) present(field) private(b_dist,b_limit,i_inner)
+#endif
+        DO j = jts, min(jtf,jbs+spec_zone-1)
+          DO k = kts, ktf
+            b_dist = j - jbs
+            b_limit = b_dist
+            IF(periodic_x)b_limit = 0
+            DO i = max(its,b_limit+ibs), min(itf,ibe-b_limit)
+              i_inner = max(i,ibs+spec_zone)
+              i_inner = min(i_inner,ibe-spec_zone)
+              IF(periodic_x)i_inner = i
+              field(i,k,j) = field(i_inner,k,jbs+spec_zone)
+            ENDDO
+          ENDDO
+        ENDDO
+      ENDIF
+
+      IF (jbe - jtf .lt. spec_zone) THEN
+! Y-end boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+        !$acc parallel loop collapse(2) present(field) private(b_dist,b_limit,i_inner)
+#endif
+        DO j = max(jts,jbe-spec_zone+1), jtf
+          DO k = kts, ktf
+            b_dist = jbe - j
+            b_limit = b_dist
+            IF(periodic_x)b_limit = 0
+            DO i = max(its,b_limit+ibs), min(itf,ibe-b_limit)
+              i_inner = max(i,ibs+spec_zone)
+              i_inner = min(i_inner,ibe-spec_zone)
+              IF(periodic_x)i_inner = i
+              field(i,k,j) = field(i_inner,k,jbe-spec_zone)
+            ENDDO
+          ENDDO
+        ENDDO
+      ENDIF
+
+      IF(.NOT.periodic_x)THEN
+        IF (its - ibs .lt. spec_zone) THEN
+! X-start boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+          !$acc parallel loop collapse(2) present(field) private(b_dist,j_inner)
+#endif
+          DO i = its, min(itf,ibs+spec_zone-1)
+            DO k = kts, ktf
+              b_dist = i - ibs
+              DO j = max(jts,b_dist+jbs+1), min(jtf,jbe-b_dist-1)
+                j_inner = max(j,jbs+spec_zone)
+                j_inner = min(j_inner,jbe-spec_zone)
+                field(i,k,j) = field(ibs+spec_zone,k,j_inner)
+              ENDDO
+            ENDDO
+          ENDDO
+        ENDIF
+
+        IF (ibe - itf .lt. spec_zone) THEN
+! X-end boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+          !$acc parallel loop collapse(2) present(field) private(b_dist,j_inner)
+#endif
+          DO i = max(its,ibe-spec_zone+1), itf
+            DO k = kts, ktf
+              b_dist = ibe - i
+              DO j = max(jts,b_dist+jbs+1), min(jtf,jbe-b_dist-1)
+                j_inner = max(j,jbs+spec_zone)
+                j_inner = min(j_inner,jbe-spec_zone)
+                field(i,k,j) = field(ibe-spec_zone,k,j_inner)
+              ENDDO
+            ENDDO
+          ENDDO
+        ENDIF
+      ENDIF
+
+   END SUBROUTINE zero_grad_bdy_smallstep
 !------------------------------------------------------------------------
 
    SUBROUTINE flow_dep_bdy  (  field,                     &

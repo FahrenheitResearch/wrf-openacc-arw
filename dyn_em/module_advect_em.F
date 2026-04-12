@@ -7742,21 +7742,25 @@ CONTAINS
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
    SUBROUTINE advect_scalar_pd_h5_v3_tail_device()
 
-!$acc data copyin(field(ims:ime,kms:kme,jms:jme),                           &
-!$acc             field_old(ims:ime,kms:kme,jms:jme),                       &
-!$acc             ru(ims:ime,kms:kme,jms:jme),                              &
-!$acc             rv(ims:ime,kms:kme,jms:jme),                              &
-!$acc             rom(ims:ime,kms:kme,jms:jme),                             &
-!$acc             mut(ims:ime,jms:jme),                                     &
-!$acc             msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),           &
-!$acc             c1(kms:kme), c2(kms:kme),                                 &
-!$acc             rdzw(kms:kme), fzm(kms:kme), fzp(kms:kme))                &
+!$acc data present(field(ims:ime,kms:kme,jms:jme),                          &
+!$acc              field_old(ims:ime,kms:kme,jms:jme),                      &
+!$acc              ru(ims:ime,kms:kme,jms:jme),                             &
+!$acc              rv(ims:ime,kms:kme,jms:jme),                             &
+!$acc              rom(ims:ime,kms:kme,jms:jme),                            &
+!$acc              mut(ims:ime,jms:jme),                                    &
+!$acc              msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),          &
+!$acc              c1(kms:kme), c2(kms:kme),                                &
+!$acc              rdzw(kms:kme), fzm(kms:kme), fzp(kms:kme),               &
+!$acc              tendency(ims:ime,kms:kme,jms:jme),                       &
+!$acc              h_tendency(ims:ime,kms:kme,jms:jme),                     &
+!$acc              z_tendency(ims:ime,kms:kme,jms:jme))                     &
 !$acc      create(fqx(its-1:ite+2,kts:kte,jts-1:jte+2),                     &
 !$acc             fqy(its-1:ite+2,kts:kte,jts-1:jte+2),                     &
 !$acc             fqz(its-1:ite+2,kts:kte,jts-1:jte+2),                     &
 !$acc             fqxl(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
 !$acc             fqyl(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
-!$acc             fqzl(its-1:ite+2,kts:kte,jts-1:jte+2))
+!$acc             fqzl(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
+!$acc             scale_out(its-2:ite+2,kts:kte,jts-2:jte+2))
 
 !$acc parallel loop collapse(3)
       DO j = jts-1, jte+2
@@ -8002,7 +8006,7 @@ CONTAINS
       ENDDO
       ENDDO
 
-      CALL advect_scalar_pd_limiter_tail()
+      CALL advect_scalar_pd_limiter_tail_present_device()
 
 !$acc end data
 
@@ -8010,21 +8014,25 @@ CONTAINS
 
    SUBROUTINE advect_scalar_pd_v3_tail_device()
 
-!$acc data copyin(field(ims:ime,kms:kme,jms:jme),                           &
-!$acc             field_old(ims:ime,kms:kme,jms:jme),                       &
-!$acc             ru(ims:ime,kms:kme,jms:jme),                              &
-!$acc             rv(ims:ime,kms:kme,jms:jme),                              &
-!$acc             rom(ims:ime,kms:kme,jms:jme),                             &
-!$acc             mut(ims:ime,jms:jme),                                     &
-!$acc             msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),           &
-!$acc             c1(kms:kme), c2(kms:kme),                                 &
-!$acc             rdzw(kms:kme), fzm(kms:kme), fzp(kms:kme))                &
+!$acc data present(field(ims:ime,kms:kme,jms:jme),                          &
+!$acc              field_old(ims:ime,kms:kme,jms:jme),                      &
+!$acc              ru(ims:ime,kms:kme,jms:jme),                             &
+!$acc              rv(ims:ime,kms:kme,jms:jme),                             &
+!$acc              rom(ims:ime,kms:kme,jms:jme),                            &
+!$acc              mut(ims:ime,jms:jme),                                    &
+!$acc              msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),          &
+!$acc              c1(kms:kme), c2(kms:kme),                                &
+!$acc              rdzw(kms:kme), fzm(kms:kme), fzp(kms:kme),               &
+!$acc              tendency(ims:ime,kms:kme,jms:jme),                       &
+!$acc              h_tendency(ims:ime,kms:kme,jms:jme),                     &
+!$acc              z_tendency(ims:ime,kms:kme,jms:jme))                     &
 !$acc      copyin(fqx(its-1:ite+2,kts:kte,jts-1:jte+2),                     &
 !$acc             fqy(its-1:ite+2,kts:kte,jts-1:jte+2),                     &
 !$acc             fqxl(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
 !$acc             fqyl(its-1:ite+2,kts:kte,jts-1:jte+2))                    &
 !$acc      create(fqz(its-1:ite+2,kts:kte,jts-1:jte+2),                     &
-!$acc             fqzl(its-1:ite+2,kts:kte,jts-1:jte+2))
+!$acc             fqzl(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
+!$acc             scale_out(its-2:ite+2,kts:kte,jts-2:jte+2))
 
 !$acc parallel loop collapse(3)
       DO j = jts-1, jte+2
@@ -8074,14 +8082,50 @@ CONTAINS
       ENDDO
       ENDDO
 
-      CALL advect_scalar_pd_limiter_tail()
+      CALL advect_scalar_pd_limiter_tail_present_device()
 
 !$acc end data
 
    END SUBROUTINE advect_scalar_pd_v3_tail_device
 #endif
 
+   SUBROUTINE advect_scalar_pd_limiter_tail_present_device()
+
+      CALL advect_scalar_pd_limiter_tail_body()
+
+   END SUBROUTINE advect_scalar_pd_limiter_tail_present_device
+
    SUBROUTINE advect_scalar_pd_limiter_tail()
+
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+! Build the cell-local limiter factor, apply the race-free face limiter, and
+! then take the limited flux divergence in one experimental device region.
+!$acc data present(field_old(ims:ime,kms:kme,jms:jme),                     &
+!$acc              mub(ims:ime,jms:jme), mu_old(ims:ime,jms:jme),          &
+!$acc              c1(kms:kme), c2(kms:kme),                               &
+!$acc              msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),         &
+!$acc              rdzw(kms:kme),                                          &
+!$acc              fqx(its-1:ite+2,kts:kte,jts-1:jte+2),                   &
+!$acc              fqy(its-1:ite+2,kts:kte,jts-1:jte+2),                   &
+!$acc              fqz(its-1:ite+2,kts:kte,jts-1:jte+2),                   &
+!$acc              fqxl(its-1:ite+2,kts:kte,jts-1:jte+2),                  &
+!$acc              fqyl(its-1:ite+2,kts:kte,jts-1:jte+2),                  &
+!$acc              fqzl(its-1:ite+2,kts:kte,jts-1:jte+2),                  &
+!$acc              tendency(ims:ime,kms:kme,jms:jme),                      &
+!$acc              h_tendency(ims:ime,kms:kme,jms:jme),                    &
+!$acc              z_tendency(ims:ime,kms:kme,jms:jme))                    &
+!$acc      create(scale_out(its-2:ite+2,kts:kte,jts-2:jte+2))
+#endif
+
+      CALL advect_scalar_pd_limiter_tail_body()
+
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+!$acc end data
+#endif
+
+   END SUBROUTINE advect_scalar_pd_limiter_tail
+
+   SUBROUTINE advect_scalar_pd_limiter_tail_body()
 
       IF (pd_limit) THEN
 
@@ -8174,26 +8218,6 @@ CONTAINS
 ! divergence. The old cell-wise rescale updated shared faces from multiple
 ! cells; the face loops below preserve the same donor-cell limiter logic
 ! without write conflicts.
-
-#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
-! Build the cell-local limiter factor, apply the race-free face limiter, and
-! then take the limited flux divergence in one experimental device region.
-!$acc data copyin(field_old(ims:ime,kms:kme,jms:jme),                      &
-!$acc             mub(ims:ime,jms:jme), mu_old(ims:ime,jms:jme),           &
-!$acc             c1(kms:kme), c2(kms:kme),                                &
-!$acc             msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),          &
-!$acc             rdzw(kms:kme),                                           &
-!$acc             fqx(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
-!$acc             fqy(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
-!$acc             fqz(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
-!$acc             fqxl(its-1:ite+2,kts:kte,jts-1:jte+2),                   &
-!$acc             fqyl(its-1:ite+2,kts:kte,jts-1:jte+2),                   &
-!$acc             fqzl(its-1:ite+2,kts:kte,jts-1:jte+2))                   &
-!$acc      create(scale_out(its-2:ite+2,kts:kte,jts-2:jte+2))              &
-!$acc      copy(tendency(ims:ime,kms:kme,jms:jme),                         &
-!$acc           h_tendency(ims:ime,kms:kme,jms:jme),                       &
-!$acc           z_tendency(ims:ime,kms:kme,jms:jme))
-#endif
 
      IF (pd_limit) THEN
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
@@ -8360,11 +8384,7 @@ CONTAINS
      ENDDO
      END IF
 
-#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
-!$acc end data
-#endif
-
-   END SUBROUTINE advect_scalar_pd_limiter_tail
+   END SUBROUTINE advect_scalar_pd_limiter_tail_body
 
 END SUBROUTINE advect_scalar_pd
 

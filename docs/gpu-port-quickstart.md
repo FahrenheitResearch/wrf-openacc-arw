@@ -38,10 +38,10 @@ OMP_NUM_THREADS=1 ./wrf
 
 Current validated short result on this path:
 
-- `20260411T1723Z-default`
+- `20260412T0151Z-default`
 - `exit 0`
 - `6 wrfout`
-- `128 s`
+- `113 s`
 
 ## 3. Build The Nested MPI/OpenACC Lane
 
@@ -70,10 +70,12 @@ WRF_HISTORY_INTERVAL_MINUTES=5 \
 
 Validated local case names:
 
-- `nested-smoke-2021-mpi-short-pd-h5-edges`
+- `nested-smoke-2021-mpi-short-advancew-scratch`
 - `nested-smoke-2021-mpi`
 
 Those run directories are not committed because they contain forcing, logs, and model output artifacts.
+
+The nested wrapper now also supports a local invariant check via [validate_wrf_run_invariants.py](../tools/validate_wrf_run_invariants.py), so successful completion is no longer just `exit 0`.
 
 ## 5. Forcing-Horizon Guard
 

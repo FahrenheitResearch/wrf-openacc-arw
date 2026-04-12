@@ -251,7 +251,11 @@ SUBROUTINE calc_mu_uv_1 ( config_flags,                 &
 !
 !</DESCRIPTION>
 
-#if defined(WRF_OPENACC_USE_ACCEL_LIB) && ( defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_FINISH) || defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) )
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+! The host-fence caller already republishes muts before the finish phase, so
+! only the staggered outputs need local copyout here.
+!$acc data present(mu) copy(muu,muv)
+#elif defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_FINISH)
 ! Keep the finish-side experiment in one local mixed-residency region so
 ! calc_mu_uv_1 does not depend on per-loop implicit mapping.
 !$acc data copy(muu,muv) copyin(mu)

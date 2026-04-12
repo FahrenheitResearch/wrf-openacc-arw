@@ -172,6 +172,9 @@ SUBROUTINE solve_em ( grid , config_flags  &
    ! Changes in tendency at this timestep
    real ,DIMENSION(grid%sm31:grid%em31,grid%sm32:grid%em32,grid%sm33:grid%em33) :: h_tendency, &
                                                                                    z_tendency
+   real ,DIMENSION(grid%sm31:grid%em31) :: advance_w_msft_inv
+   real ,DIMENSION(grid%sm31:grid%em31,grid%sm32:grid%em32) :: advance_w_rhs,    &
+                                                                advance_w_wdwn
                                                                                    
    ! Whether advection should produce decoupled horizontal and vertical advective tendency outputs
    LOGICAL                        :: tenddec
@@ -1102,7 +1105,9 @@ BENCH_START(small_step_prep_tim)
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
      ! Build the acoustic prep scratch state on device, then synchronize once
      ! before the first host halo/boundary fence.
-!$acc data create(ww1,w_save,ph_save,mu_save,c2a,pm1,a,alpha,gamma) copyin(cqw)
+!$acc data create(ww1,w_save,ph_save,mu_save,c2a,pm1,a,alpha,gamma,muave,t_2save,  &
+!$acc&                 advance_w_msft_inv,advance_w_rhs,advance_w_wdwn)             &
+!$acc&     copyin(cqu,cqv,cqw,t_tend,mu_tend,rw_tend,ph_tend)
 #endif
      WRF_SMALLSTEP_TILE_LOOP_BEGIN
      DO ij = 1 , grid%num_tiles
@@ -1170,34 +1175,41 @@ BENCH_START(small_step_prep_tim)
      WRF_SMALLSTEP_TILE_LOOP_END
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
      CALL wrf_gpu_smallstep_prep_host_fence_end( grid )
-
+#endif
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
+!$acc enter data copyin(ww1,w_save,ph_save,mu_save,c2a,a,alpha,gamma,cqu,cqv,cqw,   &
+!$acc&                   t_tend,mu_tend,rw_tend,ph_tend)                            &
+!$acc&            create(pm1,muave,t_2save,                                         &
+!$acc&                   advance_w_msft_inv,advance_w_rhs,advance_w_wdwn)          &
+!$acc&            if(config_flags%non_hydrostatic)
+#endif
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
      WRF_SMALLSTEP_TILE_LOOP_BEGIN
      DO ij = 1 , grid%num_tiles
        CALL calc_p_rho( grid%al, grid%p, grid%ph_2,                 &
                         grid%alt, grid%t_2, grid%t_save, c2a, pm1,  &
                         grid%mu_2, grid%muts,                       &
                         grid%c1h, grid%c2h, grid%c1f, grid%c2f,     &
-                        grid%c3h, grid%c4h, grid%c3f, grid%c4f,     &
-                        grid%znu, t0,                               &
-                        grid%rdnw, grid%dnw, grid%smdiv,            &
-                        config_flags%non_hydrostatic, 0,            &
-                        ids, ide, jds, jde, kds, kde,               &
-                        ims, ime, jms, jme, kms, kme,               &
-                        grid%i_start(ij), grid%i_end(ij),           &
-                        grid%j_start(ij), grid%j_end(ij),           &
-                        k_start    , k_end                          )
+                       grid%c3h, grid%c4h, grid%c3f, grid%c4f,     &
+                       grid%znu, t0,                               &
+                       grid%rdnw, grid%dnw, grid%smdiv,            &
+                       config_flags%non_hydrostatic, 0,            &
+                       ids, ide, jds, jde, kds, kde,               &
+                       ims, ime, jms, jme, kms, kme,               &
+                       grid%i_start(ij), grid%i_end(ij),           &
+                       grid%j_start(ij), grid%j_end(ij),           &
+                       k_start    , k_end                          )
      ENDDO
      WRF_SMALLSTEP_TILE_LOOP_END
 #endif
+BENCH_END(small_step_prep_tim)
+
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
 !$acc update self( grid%u_1, grid%u_2, grid%v_1, grid%v_2, grid%w_1, grid%w_2 )
 !$acc update self( grid%t_1, grid%t_2, grid%ph_1, grid%ph_2, grid%mu_1, grid%mu_2 )
 !$acc update self( grid%muus, grid%muvs, grid%muts, grid%mudf, grid%u_save, grid%v_save )
-!$acc update self( grid%t_save, grid%al, grid%p, ww1, w_save, ph_save, mu_save )
-!$acc update self( c2a, pm1, a, alpha, gamma )
-!$acc end data
+!$acc update self( grid%t_save, grid%al, grid%p )
 #endif
-BENCH_END(small_step_prep_tim)
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
      CALL wrf_gpu_smallstep_init_host_fence_begin( grid )
@@ -1247,7 +1259,27 @@ BENCH_START(set_phys_bc2_tim)
 
      DO ij = 1 , grid%num_tiles
 
-       CALL set_physical_bc3d( grid%ru_tend, 'u', config_flags,      &
+       CALL set_physical_bc_smallstep_scalar3d( grid%ru_tend, 'u',          &
+                               MAX(1,MIN(kde-1,kte)), config_flags,         &
+                               ids, ide, jds, jde, kds, kde,                &
+                               ims, ime, jms, jme, kms, kme,                &
+                               ips, ipe, jps, jpe, kps, kpe,                &
+                               grid%i_start(ij), grid%i_end(ij),            &
+                               grid%j_start(ij), grid%j_end(ij),            &
+                               k_start    , k_end                           )
+
+       CALL set_physical_bc_smallstep_scalar3d( grid%rv_tend, 'v',          &
+                               MAX(1,MIN(kde-1,kte)), config_flags,         &
+                               ids, ide, jds, jde, kds, kde,                &
+                               ims, ime, jms, jme, kms, kme,                &
+                               ips, ipe, jps, jpe, kps, kpe,                &
+                               grid%i_start(ij), grid%i_end(ij),            &
+                               grid%j_start(ij), grid%j_end(ij),            &
+                               k_start    , k_end                           )
+
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+       CALL set_physical_bc_smallstep_scalar3d( grid%ph_2, 'w',               &
+                               MIN(kde,k_end), config_flags,                  &
                                ids, ide, jds, jde, kds, kde,         &
                                ims, ime, jms, jme, kms, kme,         &
                                ips, ipe, jps, jpe, kps, kpe,         &
@@ -1255,7 +1287,8 @@ BENCH_START(set_phys_bc2_tim)
                                grid%j_start(ij), grid%j_end(ij),     &
                                k_start    , k_end                    )
 
-       CALL set_physical_bc3d( grid%rv_tend, 'v', config_flags,      &
+       CALL set_physical_bc_smallstep_scalar3d( grid%al, 'p',                 &
+                               MAX(1,MIN(kde-1,k_end)), config_flags,         &
                                ids, ide, jds, jde, kds, kde,         &
                                ims, ime, jms, jme, kms, kme,         &
                                ips, ipe, jps, jpe, kps, kpe,         &
@@ -1263,6 +1296,54 @@ BENCH_START(set_phys_bc2_tim)
                                grid%j_start(ij), grid%j_end(ij),     &
                                k_start    , k_end                    )
 
+       CALL set_physical_bc_smallstep_scalar3d( grid%p, 'p',                  &
+                               MAX(1,MIN(kde-1,k_end)), config_flags,         &
+                               ids, ide, jds, jde, kds, kde,         &
+                               ims, ime, jms, jme, kms, kme,         &
+                               ips, ipe, jps, jpe, kps, kpe,         &
+                               grid%i_start(ij), grid%i_end(ij),     &
+                               grid%j_start(ij), grid%j_end(ij),     &
+                               k_start    , k_end                    )
+
+       CALL set_physical_bc_smallstep_scalar3d( grid%t_1, 'p',                &
+                               MAX(1,MIN(kde-1,k_end)), config_flags,         &
+                               ids, ide, jds, jde, kds, kde,         &
+                               ims, ime, jms, jme, kms, kme,         &
+                               ips, ipe, jps, jpe, kps, kpe,         &
+                               grid%i_start(ij), grid%i_end(ij),     &
+                               grid%j_start(ij), grid%j_end(ij),     &
+                               k_start    , k_end                    )
+
+       CALL set_physical_bc_smallstep_scalar3d( grid%t_save, 't',             &
+                               MAX(1,MIN(kde-1,k_end)), config_flags,         &
+                               ids, ide, jds, jde, kds, kde,         &
+                               ims, ime, jms, jme, kms, kme,         &
+                               ips, ipe, jps, jpe, kps, kpe,         &
+                               grid%i_start(ij), grid%i_end(ij),     &
+                               grid%j_start(ij), grid%j_end(ij),     &
+                               k_start    , k_end                    )
+
+       CALL set_physical_bc_smallstep_scalar2d_t( grid%mu_1, config_flags,    &
+                               ids, ide, jds, jde,                   &
+                               ims, ime, jms, jme,                   &
+                               ips, ipe, jps, jpe,                   &
+                               grid%i_start(ij), grid%i_end(ij),     &
+                               grid%j_start(ij), grid%j_end(ij)      )
+
+       CALL set_physical_bc_smallstep_scalar2d_t( grid%mu_2, config_flags,    &
+                               ids, ide, jds, jde,                   &
+                               ims, ime, jms, jme,                   &
+                               ips, ipe, jps, jpe,                   &
+                               grid%i_start(ij), grid%i_end(ij),     &
+                               grid%j_start(ij), grid%j_end(ij)      )
+
+       CALL set_physical_bc_smallstep_scalar2d_t( grid%mudf, config_flags,    &
+                               ids, ide, jds, jde,                   &
+                               ims, ime, jms, jme,                   &
+                               ips, ipe, jps, jpe,                   &
+                               grid%i_start(ij), grid%i_end(ij),     &
+                               grid%j_start(ij), grid%j_end(ij)      )
+#else
        CALL set_physical_bc3d( grid%ph_2, 'w', config_flags,         &
                                ids, ide, jds, jde, kds, kde,         &
                                ims, ime, jms, jme, kms, kme,         &
@@ -1323,6 +1404,7 @@ BENCH_START(set_phys_bc2_tim)
                                ips, ipe, jps, jpe,                   &
                                grid%i_start(ij), grid%i_end(ij),     &
                                grid%j_start(ij), grid%j_end(ij)      )
+#endif
 
      END DO
      !$OMP END PARALLEL DO
@@ -1425,6 +1507,27 @@ BENCH_END(advance_uv_tim)
 
 BENCH_START(spec_bdy_uv_tim)
          IF( config_flags%specified .or. config_flags%nested ) THEN
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+           CALL spec_bdyupdate_smallstep(grid%u_2, grid%ru_tend, dts_rk,      &
+                               'u'         , config_flags, &
+                                grid%spec_zone,                  &
+                                ids,ide, jds,jde, kds,kde,  & ! domain dims
+                                ims,ime, jms,jme, kms,kme,  & ! memory dims
+                                ips,ipe, jps,jpe, kps,kpe,  & ! patch  dims
+                                grid%i_start(ij), grid%i_end(ij),         &
+                                grid%j_start(ij), grid%j_end(ij),         &
+                                k_start    , k_end             )
+
+           CALL spec_bdyupdate_smallstep(grid%v_2, grid%rv_tend, dts_rk,      &
+                                'v'         , config_flags, &
+                                grid%spec_zone,                  &
+                                ids,ide, jds,jde, kds,kde,  & ! domain dims
+                                ims,ime, jms,jme, kms,kme,  & ! memory dims
+                                ips,ipe, jps,jpe, kps,kpe,  & ! patch  dims
+                                grid%i_start(ij), grid%i_end(ij),         &
+                                grid%j_start(ij), grid%j_end(ij),         &
+                                k_start    , k_end             )
+#else
            CALL spec_bdyupdate(grid%u_2, grid%ru_tend, dts_rk,      &
                                'u'         , config_flags, &
                                 grid%spec_zone,                  &
@@ -1444,6 +1547,7 @@ BENCH_START(spec_bdy_uv_tim)
                                 grid%i_start(ij), grid%i_end(ij),         &
                                 grid%j_start(ij), grid%j_end(ij),         &
                                 k_start    , k_end             )
+#endif
 
          ENDIF
 BENCH_END(spec_bdy_uv_tim)
@@ -1560,7 +1664,7 @@ BENCH_START(spec_bdy_t_tim)
 
          IF( config_flags%specified .or. config_flags%nested ) THEN
 
-           CALL spec_bdyupdate(grid%t_2, t_tend, dts_rk,        &
+           CALL spec_bdyupdate_smallstep(grid%t_2, t_tend, dts_rk,        &
                                't'         , config_flags,      &
                                grid%spec_zone,                  &
                                ids,ide, jds,jde, kds,kde,       &
@@ -1570,7 +1674,7 @@ BENCH_START(spec_bdy_t_tim)
                                grid%j_start(ij), grid%j_end(ij),&
                                k_start    , k_end              )
 
-           CALL spec_bdyupdate(grid%mu_2, mu_tend, dts_rk,       &
+           CALL spec_bdyupdate_smallstep(grid%mu_2, mu_tend, dts_rk,       &
                                'm'         , config_flags,      &
                                grid%spec_zone,                  &
                                ids,ide, jds,jde, 1  ,1  ,       &
@@ -1623,7 +1727,9 @@ BENCH_START(advance_w_tim)
                            ims,ime, jms,jme, kms,kme,                  &
                            grid%i_start(ij), grid%i_end(ij),           &
                            grid%j_start(ij), grid%j_end(ij),           &
-                           k_start    , k_end                          )
+                           k_start    , k_end,                         &
+                           advance_w_msft_inv, advance_w_rhs,          &
+                           advance_w_wdwn                              )
          ENDIF
 BENCH_END(advance_w_tim)
 
@@ -1687,7 +1793,9 @@ BENCH_START(advance_w_tim)
                            ims,ime, jms,jme, kms,kme,                  &
                            grid%i_start(ij), grid%i_end(ij),           &
                            grid%j_start(ij), grid%j_end(ij),           &
-                           k_start    , k_end                          )
+                           k_start    , k_end,                         &
+                           advance_w_msft_inv, advance_w_rhs,          &
+                           advance_w_wdwn                              )
          ENDIF
 BENCH_END(advance_w_tim)
 
@@ -1789,37 +1897,37 @@ BENCH_END(sumflux_tim)
 
 BENCH_START(spec_bdynhyd_tim)
            IF (config_flags%non_hydrostatic)  THEN
-             CALL spec_bdyupdate_ph( ph_save, grid%ph_2, ph_tend,     &
-                                     mu_tend, grid%muts,              &
-                                     grid%c1f, grid%c2f, dts_rk,      &
-                                     'h'         , config_flags,      &
-                                     grid%spec_zone,                  &
-                                     ids,ide, jds,jde, kds,kde,       &
-                                     ims,ime, jms,jme, kms,kme,       &
-                                     ips,ipe, jps,jpe, kps,kpe,       &
-                                     grid%i_start(ij), grid%i_end(ij),&
-                                     grid%j_start(ij), grid%j_end(ij),&
-                                     k_start    , k_end               )
+             CALL spec_bdyupdate_ph_smallstep( ph_save, grid%ph_2, ph_tend, &
+                                               mu_tend, grid%muts,          &
+                                               grid%c1f, grid%c2f, dts_rk,  &
+                                               'h'         , config_flags,  &
+                                               grid%spec_zone,              &
+                                               ids,ide, jds,jde, kds,kde,   &
+                                               ims,ime, jms,jme, kms,kme,   &
+                                               ips,ipe, jps,jpe, kps,kpe,   &
+                                               grid%i_start(ij), grid%i_end(ij),&
+                                               grid%j_start(ij), grid%j_end(ij),&
+                                               k_start    , k_end           )
              IF( config_flags%specified ) THEN
-               CALL zero_grad_bdy ( grid%w_2,                         &
-                                    'w'         , config_flags,       &
-                                    grid%spec_zone,                   &
-                                    ids,ide, jds,jde, kds,kde,        &
-                                    ims,ime, jms,jme, kms,kme,        &
-                                    ips,ipe, jps,jpe, kps,kpe,        &
-                                    grid%i_start(ij), grid%i_end(ij), &
-                                    grid%j_start(ij), grid%j_end(ij), &
-                                    k_start    , k_end                )
+               CALL zero_grad_bdy_smallstep ( grid%w_2,               &
+                                              'w'         , config_flags, &
+                                              grid%spec_zone,         &
+                                              ids,ide, jds,jde, kds,kde,  &
+                                              ims,ime, jms,jme, kms,kme,  &
+                                              ips,ipe, jps,jpe, kps,kpe,  &
+                                              grid%i_start(ij), grid%i_end(ij), &
+                                              grid%j_start(ij), grid%j_end(ij), &
+                                              k_start    , k_end      )
              ELSE
-               CALL spec_bdyupdate ( grid%w_2, rw_tend, dts_rk,       &
-                                     'h'         , config_flags,      &
-                                     grid%spec_zone,                  &
-                                     ids,ide, jds,jde, kds,kde,       &
-                                     ims,ime, jms,jme, kms,kme,       &
-                                     ips,ipe, jps,jpe, kps,kpe,       &
-                                     grid%i_start(ij), grid%i_end(ij),&
-                                     grid%j_start(ij), grid%j_end(ij),&
-                                     k_start    , k_end               )
+               CALL spec_bdyupdate_smallstep ( grid%w_2, rw_tend, dts_rk, &
+                                               'h'         , config_flags, &
+                                               grid%spec_zone,             &
+                                               ids,ide, jds,jde, kds,kde,  &
+                                               ims,ime, jms,jme, kms,kme,  &
+                                               ips,ipe, jps,jpe, kps,kpe,  &
+                                               grid%i_start(ij), grid%i_end(ij),&
+                                               grid%j_start(ij), grid%j_end(ij),&
+                                               k_start    , k_end          )
              ENDIF
            ENDIF
 BENCH_END(spec_bdynhyd_tim)
@@ -1854,7 +1962,13 @@ BENCH_END(cald_p_rho_tim)
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
        IF ( config_flags%non_hydrostatic ) THEN
-          CALL wrf_gpu_smallstep_early_host_fence_end( grid )
+          ! The active host-fence nonhydro path now keeps the post-advance_w
+          ! sumflux and small-step boundary updates on device. Only the polar
+          ! filter still implies a host-side ownership break before the second
+          ! calc_p_rho / p-halo segment.
+          IF ( config_flags%polar ) THEN
+             CALL wrf_gpu_smallstep_early_host_fence_end( grid )
+          END IF
 
           WRF_SMALLSTEP_TILE_LOOP_BEGIN
           DO ij = 1 , grid%num_tiles
@@ -1878,7 +1992,9 @@ BENCH_END(cald_p_rho_tim)
           ENDDO
           WRF_SMALLSTEP_TILE_LOOP_END
 
+#ifdef DM_PARALLEL
           CALL wrf_gpu_smallstep_p_halo_host_fence_begin( grid )
+#endif
        END IF
 #endif
 
@@ -1906,7 +2022,9 @@ BENCH_END(cald_p_rho_tim)
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
        IF ( smallstep_use_device_phys_bc_tail ) THEN
+#ifdef DM_PARALLEL
           CALL wrf_gpu_smallstep_phys_bc_host_fence_end( grid )
+#endif
        END IF
 #endif
 
@@ -1987,6 +2105,16 @@ BENCH_START(phys_bc_tim)
 BENCH_END(phys_bc_tim)
 
      END DO small_steps
+
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
+!$acc exit data delete(ww1,w_save,ph_save,mu_save,c2a,a,alpha,gamma,cqu,cqv,cqw,   &
+!$acc&                    t_tend,mu_tend,rw_tend,ph_tend,pm1,muave,t_2save,         &
+!$acc&                    advance_w_msft_inv,advance_w_rhs,advance_w_wdwn)          &
+!$acc&           if(config_flags%non_hydrostatic)
+#endif
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
+!$acc end data
+#endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
      IF ( .NOT. smallstep_use_device_phys_bc_tail ) THEN
@@ -2516,6 +2644,28 @@ BENCH_END(small_step_finish_tim)
 
        moist_scalar_advance: IF (num_3d_m >= PARAM_FIRST_SCALAR )  THEN
 
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+! Keep the shared PD moisture inputs resident across the species loop so the
+! proof lane stops reintroducing the same solve_em-side state for each moist
+! variable before dropping into rk_scalar_tend.
+!$acc data pcopyin(grid%ru_m(ims:ime,kms:kme,jms:jme),                     &
+!$acc              grid%rv_m(ims:ime,kms:kme,jms:jme),                     &
+!$acc              grid%muts(ims:ime,jms:jme),                             &
+!$acc              grid%mub(ims:ime,jms:jme),                              &
+!$acc              grid%mu_1(ims:ime,jms:jme),                             &
+!$acc              grid%mu_2(ims:ime,jms:jme),                             &
+!$acc              wwE(ims:ime,kms:kme,jms:jme),                           &
+!$acc              grid%c1h(kms:kme), grid%c2h(kms:kme),                   &
+!$acc              grid%msfux(ims:ime,jms:jme),                            &
+!$acc              grid%msfuy(ims:ime,jms:jme),                            &
+!$acc              grid%msfvx(ims:ime,jms:jme),                            &
+!$acc              grid%msfvy(ims:ime,jms:jme),                            &
+!$acc              grid%msftx(ims:ime,jms:jme),                            &
+!$acc              grid%msfty(ims:ime,jms:jme),                            &
+!$acc              grid%fnm(kms:kme), grid%fnp(kms:kme),                   &
+!$acc              grid%rdnw(kms:kme))                                     &
+!$acc      if(config_flags%moist_adv_opt == POSITIVEDEF)
+#endif
          moist_variable_loop: DO im = PARAM_FIRST_SCALAR, num_3d_m
 
 ! adv_moist_cond is set in module_physics_init based on mp_physics choice
@@ -2625,6 +2775,73 @@ BENCH_END(rlx_bdy_scalar_tim)
                tenddec = .false.
 
 BENCH_START(update_scal_tim)
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+               IF ( config_flags%moist_adv_opt == POSITIVEDEF ) THEN
+! Keep the shared update state resident across the moist loop and stage only
+! the per-species slices here before the single-member experimental update.
+                 IF ( rk_step == 1 ) THEN
+!$acc data copy(moist_old(ims:ime,kms:kme,jms:jme,im),                     &
+!$acc                moist(ims:ime,kms:kme,jms:jme,im))                    &
+!$acc      copyin(moist_tend(ims:ime,kms:kme,jms:jme,im),                  &
+!$acc             advect_tend(ims:ime,kms:kme,jms:jme))                    &
+!$acc      present(grid%msfty(ims:ime,jms:jme),                            &
+!$acc              grid%c1h(kms:kme), grid%c2h(kms:kme),                   &
+!$acc              grid%mu_1(ims:ime,jms:jme),                             &
+!$acc              grid%mu_2(ims:ime,jms:jme),                             &
+!$acc              grid%mub(ims:ime,jms:jme))
+                   CALL rk_update_scalar_member_present_noadvdec(          &
+                                 scalar_1=moist_old(ims,kms,jms,im),       &
+                                 scalar_2=moist(ims,kms,jms,im),           &
+                                 sc_tend=moist_tend(ims,kms,jms,im),       &
+                                 advect_tend=advect_tend,                  &
+                                 msfty=grid%msfty,                         &
+                                 c1=grid%c1h, c2=grid%c2h,                 &
+                                 mu_old=grid%mu_1, mu_new=grid%mu_2,       &
+                                 mu_base=grid%mub,                         &
+                                 rk_step=rk_step, dt=dt_rk,                &
+                                 spec_zone=grid%spec_zone,                 &
+                                 config_flags=config_flags,                &
+                                 ids=ids, ide=ide, jds=jds, jde=jde,       &
+                                 kds=kds, kde=kde,                         &
+                                 ims=ims, ime=ime, jms=jms, jme=jme,       &
+                                 kms=kms, kme=kme,                         &
+                                 its=grid%i_start(ij), ite=grid%i_end(ij), &
+                                 jts=grid%j_start(ij), jte=grid%j_end(ij), &
+                                 kts=k_start    , kte=k_end                )
+!$acc end data
+                 ELSE
+!$acc data copyin(moist_old(ims:ime,kms:kme,jms:jme,im),                   &
+!$acc             moist_tend(ims:ime,kms:kme,jms:jme,im),                  &
+!$acc             advect_tend(ims:ime,kms:kme,jms:jme))                    &
+!$acc      copy(moist(ims:ime,kms:kme,jms:jme,im))                         &
+!$acc      present(grid%msfty(ims:ime,jms:jme),                            &
+!$acc              grid%c1h(kms:kme), grid%c2h(kms:kme),                   &
+!$acc              grid%mu_1(ims:ime,jms:jme),                             &
+!$acc              grid%mu_2(ims:ime,jms:jme),                             &
+!$acc              grid%mub(ims:ime,jms:jme))
+                   CALL rk_update_scalar_member_present_noadvdec(          &
+                                 scalar_1=moist_old(ims,kms,jms,im),       &
+                                 scalar_2=moist(ims,kms,jms,im),           &
+                                 sc_tend=moist_tend(ims,kms,jms,im),       &
+                                 advect_tend=advect_tend,                  &
+                                 msfty=grid%msfty,                         &
+                                 c1=grid%c1h, c2=grid%c2h,                 &
+                                 mu_old=grid%mu_1, mu_new=grid%mu_2,       &
+                                 mu_base=grid%mub,                         &
+                                 rk_step=rk_step, dt=dt_rk,                &
+                                 spec_zone=grid%spec_zone,                 &
+                                 config_flags=config_flags,                &
+                                 ids=ids, ide=ide, jds=jds, jde=jde,       &
+                                 kds=kds, kde=kde,                         &
+                                 ims=ims, ime=ime, jms=jms, jme=jme,       &
+                                 kms=kms, kme=kme,                         &
+                                 its=grid%i_start(ij), ite=grid%i_end(ij), &
+                                 jts=grid%j_start(ij), jte=grid%j_end(ij), &
+                                 kts=k_start    , kte=k_end                )
+!$acc end data
+                 ENDIF
+               ELSE
+#endif
                CALL rk_update_scalar( scs=im, sce=im,                                  &
                                scalar_1=moist_old(ims,kms,jms,im),                     &
                                scalar_2=moist(ims,kms,jms,im),                         &
@@ -2641,6 +2858,9 @@ BENCH_START(update_scal_tim)
                                its=grid%i_start(ij), ite=grid%i_end(ij),               &
                                jts=grid%j_start(ij), jte=grid%j_end(ij),               &
                                kts=k_start    , kte=k_end                              )
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+               ENDIF
+#endif
                IF( rk_step == rk_order .AND. config_flags%use_q_diabatic == 1 )THEN
                IF( im.eq.p_qv .or. im.eq.p_qc )THEN
                    CALL q_diabatic_subtr( im, im,            & 
@@ -2656,7 +2876,6 @@ BENCH_START(update_scal_tim)
                ENDIF
                ENDIF
 BENCH_END(update_scal_tim)
-
 BENCH_START(flow_depbdy_tim)
                IF( config_flags%specified .AND. ( .NOT. config_flags%have_bcs_moist ) ) THEN
                  IF(im .ne. P_QV)THEN
@@ -2679,6 +2898,10 @@ BENCH_END(flow_depbdy_tim)
            ENDIF  !-- if (grid%adv_moist_cond .or. im==p_qv ) then
 
          ENDDO moist_variable_loop
+
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+!$acc end data
+#endif
 
        ENDIF moist_scalar_advance
 

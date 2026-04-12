@@ -49,6 +49,7 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 package_script="$script_dir/package_nested_smoke_2021.sh"
 forcing_check_script="$repo_root/tools/validate_wrf_forcing_horizon.py"
+invariant_check_script="$repo_root/tools/validate_wrf_run_invariants.py"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
@@ -80,8 +81,6 @@ history_interval_minutes=${WRF_HISTORY_INTERVAL_MINUTES:-}
 
 real_log="$case_dir/real.log"
 wrf_log="$case_dir/wrf.log"
-expected_d01="$case_dir/wrfout_d01_2021-12-30_17:00:00"
-expected_d02="$case_dir/wrfout_d02_2021-12-30_17:00:00"
 
 package_case() {
   "$package_script" "$case_dir" "$source_case" "$build_dir"
@@ -186,16 +185,12 @@ check_logs_for_fatal() {
 }
 
 check_case() {
-  local header_d01 header_d02
-
   require_file "$case_dir/real"
   require_file "$case_dir/wrf"
   require_file "$case_dir/namelist.real.input"
   require_file "$case_dir/namelist.wrf.input"
   require_file "$case_dir/wrfinput_d01"
   require_file "$case_dir/wrfbdy_d01"
-  require_file "$expected_d01"
-  require_file "$expected_d02"
   require_file "$case_dir/rsl.out.0000"
   require_file "$case_dir/rsl.out.0001"
 
@@ -205,24 +200,12 @@ check_case() {
     fail "missing domain 1 timing in rsl.out.*"
   rg -q 'Timing for main: .* domain +2' "$case_dir"/rsl.out.* || \
     fail "missing domain 2 timing in rsl.out.*"
-  rg -q 'Timing for Writing wrfout_d02_2021-12-30_17:00:00 for domain +2' "$case_dir"/rsl.out.* || \
-    fail "missing d02 wrfout write in rsl.out.*"
-
-  header_d01=$(ncdump -h "$expected_d01")
-  header_d02=$(ncdump -h "$expected_d02")
-  rg -q 'Time = UNLIMITED' <<<"$header_d01" || fail "wrfout_d01 missing Time dimension"
-  rg -q 'west_east = 199' <<<"$header_d01" || fail "wrfout_d01 west_east mismatch"
-  rg -q 'south_north = 199' <<<"$header_d01" || fail "wrfout_d01 south_north mismatch"
-  rg -q 'Time = UNLIMITED' <<<"$header_d02" || fail "wrfout_d02 missing Time dimension"
-  rg -q 'west_east = 60' <<<"$header_d02" || fail "wrfout_d02 west_east mismatch"
-  rg -q 'south_north = 60' <<<"$header_d02" || fail "wrfout_d02 south_north mismatch"
+  python3 "$invariant_check_script" "$case_dir/namelist.wrf.input" "$case_dir"
 
   printf 'nested smoke mpi OK\n'
   printf '  case_dir: %s\n' "$case_dir"
   printf '  real_log: %s\n' "$real_log"
   printf '  wrf_log:  %s\n' "$wrf_log"
-  printf '  d01:      %s bytes\n' "$(stat -c '%s' "$expected_d01")"
-  printf '  d02:      %s bytes\n' "$(stat -c '%s' "$expected_d02")"
 }
 
 case "$mode" in

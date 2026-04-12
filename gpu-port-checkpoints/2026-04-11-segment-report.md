@@ -5,11 +5,24 @@ Scope: Consolidated technical segment report for the current GPU-port campaign t
 
 Public-repo note: this report is committed as a checkpoint document, and the corresponding public snapshot is published at `https://github.com/FahrenheitResearch/wrf-openacc-arw`. Many raw run directories referenced here are local validation artifacts and are intentionally not part of the public repository contents.
 
+## 2026-04-12 Addendum
+
+The repository moved materially past the original public checkpoint after this report was first written.
+
+- The retained experimental host-fence lane is now in the `159 s` class, not the older `376 s` class.
+- The retained default short control remains in the `113-114 s` class.
+- The retained small-step line includes the `advance_w` caller-scratch hoist and the corrected host-side `calc_coef_w` path in `solve_em.F`.
+- A missing `calc_coef_w` call in the compiled host-fence path was found by checking the actual preprocessed build and then fixed.
+- A device-side `calc_coef_w` ownership attempt was tested and rejected because it regressed to `176 s`; the active branch remains on the faster corrected host-side coefficient build.
+- The nested harness now includes [validate_wrf_run_invariants.py](../tools/validate_wrf_run_invariants.py), so the short nested smoke proves more than simple survival.
+
+The main blocker description is also sharper than in the original text below: the current next coarse ownership cut is the nonhydro `small_step_em` / `solve_em` segment around post-`sumflux` boundary updates, the second `calc_p_rho`, and the `p`-halo exchange.
+
 ## Abstract
 
 This segment moved the WRF-ARW GPU port from isolated GPU-enabled kernels toward phase-level device residency. The largest durable changes were: a real runtime residency layer in `frame/module_gpu_runtime.F`; materially reduced wrapper/staging overhead in the active 3 km physics stack; a repeatable NVHPC+MPI+OpenACC nested lane; a functioning remote two-node validation workflow; and new scalar/advection restructuring in `dyn_em/module_em.F` and `dyn_em/module_advect_em.F`, including the current positive-definite `h5/v3` degraded-edge-band seam.
 
-The strongest validated performance result for the older local short single-domain stack remains `run_gpu_batch59_nvhpc_fullactive_stack` at `real 154.62 s`, down from the old control `run_gpu_batch53_nvhpc_muts_physbc` at `real 207.64 s`, a `25.54%` wall-time improvement. The final remote public-checkpoint validations for this segment finished at `128 s` on the default NVHPC/OpenACC lane and `376 s` on the experimental host-fence lane. Nested MPI/OpenACC validation progressed from short smokes to a completed one-hour, two-domain run through `2021-12-30_18:00:00`, and the final short nested validation for the published checkpoint passed cleanly through `2021-12-30_17:05:00`.
+The strongest validated performance result for the older local short single-domain stack remains `run_gpu_batch59_nvhpc_fullactive_stack` at `real 154.62 s`, down from the old control `run_gpu_batch53_nvhpc_muts_physbc` at `real 207.64 s`, a `25.54%` wall-time improvement. The final remote public-checkpoint validations for this segment finished at `128 s` on the default NVHPC/OpenACC lane and `376 s` on the experimental host-fence lane. Since that checkpoint, the retained branch improved to about `113-114 s` on the default lane and `159 s` on the corrected host-fence lane. Nested MPI/OpenACC validation progressed from short smokes to a completed one-hour, two-domain run through `2021-12-30_18:00:00`, and the final short nested validation for the published checkpoint passed cleanly through `2021-12-30_17:05:00`.
 
 This is not a complete GPU WRF. The model is still architecturally hybrid: selected dynamics, surface/PBL, microphysics, and radiation fields can remain resident, but the timestep still crosses back to host in major nonhydro/scalar and I/O/nesting phases. The dominant remaining architecture problem is therefore a genuinely GPU-owned nonhydro/scalar evolution path rather than isolated loop offload. The segment now ends at a real public checkpoint rather than with runs still pending.
 
@@ -17,9 +30,9 @@ This is not a complete GPU WRF. The model is still architecturally hybrid: selec
 
 ### Current blunt estimates
 
-- Full literal WRF GPU port: about `20%`
-- Useful GPU-first active 3 km stack: about `60%`
-- Production-capable nested `25 km -> 9 km -> 3 km` path: about `45%`
+- Full literal WRF GPU port: about `15%`
+- Useful GPU-first active 3 km stack: about `55%`
+- Production-capable nested `25 km -> 9 km -> 3 km` path: about `30%`
 
 ### What changed materially in this segment
 

@@ -1243,6 +1243,32 @@ SUBROUTINE rk_scalar_tend ( scs, sce, config_flags,          &
    
    CALL nl_get_time_step ( 1, time_step )
 
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+! Keep the PD scalar caller state resident across the member loop so the
+! experimental branch stops repopulating the same geometry/velocity inputs
+! for each moist member.
+   IF ( (rk_step == rk_order) .and. (adv_opt == POSITIVEDEF) ) THEN
+!$acc data pcopyin(ru(ims:ime,kms:kme,jms:jme),                            &
+!$acc              rv(ims:ime,kms:kme,jms:jme),                            &
+!$acc              mut(ims:ime,jms:jme),                                   &
+!$acc              mub(ims:ime,jms:jme),                                   &
+!$acc              mu_old(ims:ime,jms:jme))                                &
+!$acc      copyin(wwE(ims:ime,kms:kme,jms:jme),                            &
+!$acc             c1h(kms:kme), c2h(kms:kme),                              &
+!$acc             msfux(ims:ime,jms:jme), msfuy(ims:ime,jms:jme),          &
+!$acc             msfvx(ims:ime,jms:jme), msfvy(ims:ime,jms:jme),          &
+!$acc             msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),          &
+!$acc             fnm(kms:kme), fnp(kms:kme), rdnw(kms:kme))
+      IF ( scs .EQ. sce ) THEN
+         CALL rk_scalar_tend_member( scs )
+      ELSE
+         DO im = scs, sce
+            CALL rk_scalar_tend_member( im )
+         END DO
+      END IF
+!$acc end data
+   ELSE
+#endif
    IF ( scs .EQ. sce ) THEN
       CALL rk_scalar_tend_member( scs )
    ELSE
@@ -1250,6 +1276,9 @@ SUBROUTINE rk_scalar_tend ( scs, sce, config_flags,          &
          CALL rk_scalar_tend_member( im )
       END DO
    END IF
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+   END IF
+#endif
 
 CONTAINS
 
@@ -1279,23 +1308,22 @@ CONTAINS
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
 ! The active scalar stack is PD advection. Keep the caller-side experimental
 ! ownership cut branch-local here so the rest of rk_scalar_tend stays unchanged.
-!$acc data copyin(scalar(ims:ime,kms:kme,jms:jme,im),                      &
-!$acc             scalar_old(ims:ime,kms:kme,jms:jme,im),                  &
-!$acc             ru(ims:ime,kms:kme,jms:jme),                             &
-!$acc             rv(ims:ime,kms:kme,jms:jme),                             &
-!$acc             wwE(ims:ime,kms:kme,jms:jme),                            &
-!$acc             c1h(kms:kme), c2h(kms:kme),                              &
-!$acc             mut(ims:ime,jms:jme),                                    &
-!$acc             mub(ims:ime,jms:jme),                                    &
-!$acc             mu_old(ims:ime,jms:jme),                                 &
-!$acc             msfux(ims:ime,jms:jme), msfuy(ims:ime,jms:jme),          &
-!$acc             msfvx(ims:ime,jms:jme), msfvy(ims:ime,jms:jme),          &
-!$acc             msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),          &
-!$acc             fnm(kms:kme), fnp(kms:kme), rdnw(kms:kme))               &
+!$acc data pcopyin(scalar(ims:ime,kms:kme,jms:jme,im),                     &
+!$acc              scalar_old(ims:ime,kms:kme,jms:jme,im))                 &
+!$acc      present(ru(ims:ime,kms:kme,jms:jme),                            &
+!$acc              rv(ims:ime,kms:kme,jms:jme),                            &
+!$acc              wwE(ims:ime,kms:kme,jms:jme),                           &
+!$acc              c1h(kms:kme), c2h(kms:kme),                             &
+!$acc              mut(ims:ime,jms:jme),                                   &
+!$acc              mub(ims:ime,jms:jme),                                   &
+!$acc              mu_old(ims:ime,jms:jme),                                &
+!$acc              msfux(ims:ime,jms:jme), msfuy(ims:ime,jms:jme),         &
+!$acc              msfvx(ims:ime,jms:jme), msfvy(ims:ime,jms:jme),         &
+!$acc              msftx(ims:ime,jms:jme), msfty(ims:ime,jms:jme),         &
+!$acc              fnm(kms:kme), fnp(kms:kme), rdnw(kms:kme))              &
 !$acc      copy(advect_tend(ims:ime,kms:kme,jms:jme),                      &
 !$acc           h_tendency(ims:ime,kms:kme,jms:jme),                       &
 !$acc           z_tendency(ims:ime,kms:kme,jms:jme))
-#endif
         CALL advect_scalar_pd       ( scalar(ims,kms,jms,im),             &
                                       scalar_old(ims,kms,jms,im),         &
                                       advect_tend(ims,kms,jms),           &
@@ -1310,7 +1338,6 @@ CONTAINS
                                       ids, ide, jds, jde, kds, kde,       &
                                       ims, ime, jms, jme, kms, kme,       &
                                       its, ite, jts, jte, kts, kte     )
-#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
 !$acc end data
 #endif
 
@@ -1937,6 +1964,106 @@ SUBROUTINE rk_update_scalar( scs, sce,                      &
     END IF
 
 END SUBROUTINE rk_update_scalar
+
+!-------------------------------------------------------------------------------
+
+SUBROUTINE rk_update_scalar_member_present_noadvdec( scalar_1, scalar_2,    &
+                                                     sc_tend, advect_tend,   &
+                                                     msfty, c1, c2,          &
+                                                     mu_old, mu_new, mu_base,&
+                                                     rk_step, dt, spec_zone, &
+                                                     config_flags,           &
+                                                     ids, ide, jds, jde,     &
+                                                     kds, kde,               &
+                                                     ims, ime, jms, jme,     &
+                                                     kms, kme,               &
+                                                     its, ite, jts, jte,     &
+                                                     kts, kte )
+
+   IMPLICIT NONE
+
+   TYPE(grid_config_rec_type), INTENT(IN) :: config_flags
+
+   INTEGER, INTENT(IN) :: rk_step, spec_zone
+   INTEGER, INTENT(IN) :: ids, ide, jds, jde, kds, kde, &
+                          ims, ime, jms, jme, kms, kme, &
+                          its, ite, jts, jte, kts, kte
+
+   REAL, INTENT(IN) :: dt
+
+   REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(INOUT) :: scalar_1, scalar_2
+   REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(IN   ) :: sc_tend, advect_tend
+   REAL, DIMENSION(ims:ime, jms:jme), INTENT(IN   ) :: msfty, mu_old, mu_new, mu_base
+   REAL, DIMENSION(kms:kme), INTENT(IN   ) :: c1, c2
+
+   INTEGER :: i, j, k
+   REAL    :: tendency_ijk, muold_i, munew_i
+
+   INTEGER :: i_start, i_end, j_start, j_end, k_start, k_end
+   INTEGER :: i_start_spc, i_end_spc, j_start_spc, j_end_spc
+   INTEGER :: k_start_spc, k_end_spc
+
+      i_start = its
+      i_end   = min(ite,ide-1)
+      j_start = jts
+      j_end   = min(jte,jde-1)
+      k_start = kts
+      k_end   = kte-1
+
+      i_start_spc = i_start
+      i_end_spc   = i_end
+      j_start_spc = j_start
+      j_end_spc   = j_end
+      k_start_spc = k_start
+      k_end_spc   = k_end
+
+    IF( config_flags%nested .or. config_flags%specified ) THEN
+      IF( .NOT. config_flags%periodic_x ) i_start = max( its, ids+spec_zone )
+      IF( .NOT. config_flags%periodic_x ) i_end   = min( ite, ide-spec_zone-1 )
+      j_start = max( jts, jds+spec_zone )
+      j_end   = min( jte, jde-spec_zone-1 )
+      k_start = kts
+      k_end   = min( kte, kde-1 )
+    ENDIF
+
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+! The proof lane already keeps the shared geometry and mass fields resident in
+! solve_em. This helper only stages the per-species slices and updates a single
+! moist member without reopening the generic host-owned rk_update_scalar path.
+!$acc parallel loop collapse(3) gang vector present(scalar_1, scalar_2,        &
+!$acc      sc_tend, advect_tend, msfty, c1, c2, mu_old, mu_new, mu_base)
+#endif
+      DO j = jts, min(jte,jde-1)
+      DO k = kts, min(kte,kde-1)
+      DO i = its, min(ite,ide-1)
+
+        tendency_ijk = 0.
+
+        IF ( i .GE. i_start .AND. i .LE. i_end .AND.                           &
+             j .GE. j_start .AND. j .LE. j_end .AND.                           &
+             k .GE. k_start .AND. k .LE. k_end ) THEN
+           tendency_ijk = advect_tend(i,k,j) * msfty(i,j)
+        END IF
+
+        IF ( i .GE. i_start_spc .AND. i .LE. i_end_spc .AND.                   &
+             j .GE. j_start_spc .AND. j .LE. j_end_spc .AND.                   &
+             k .GE. k_start_spc .AND. k .LE. k_end_spc ) THEN
+           tendency_ijk = tendency_ijk + sc_tend(i,k,j)
+        END IF
+
+        muold_i = mu_old(i,j) + mu_base(i,j)
+        munew_i = mu_new(i,j) + mu_base(i,j)
+
+        IF ( rk_step == 1 ) scalar_1(i,k,j) = scalar_2(i,k,j)
+
+        scalar_2(i,k,j) = ((c1(k)*muold_i+c2(k))*scalar_1(i,k,j)             &
+                         + dt*tendency_ijk)/(c1(k)*munew_i+c2(k))
+
+      ENDDO
+      ENDDO
+      ENDDO
+
+END SUBROUTINE rk_update_scalar_member_present_noadvdec
 
 !-------------------------------------------------------------------------------
 

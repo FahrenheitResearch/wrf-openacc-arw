@@ -46,7 +46,7 @@ The experimental lane is deliberately different:
 - used to prove new ownership seams
 - allowed to be much slower than default
 
-At the current checkpoint, the experimental short run is still far slower than default (`376 s` vs `128 s`). That is acceptable because this lane exists to prove architecture first.
+At the current retained branch, the experimental short run is still slower than default (`159 s` vs `113 s`). That is acceptable because this lane exists to prove ownership first, not to be the production timing reference.
 
 ## Current GPU-Owned Seams
 
@@ -71,7 +71,7 @@ The model is still architecturally hybrid.
 
 The biggest remaining ownership problems are:
 
-- coarse `small_step_em` / `solve_em` residency
+- coarse `small_step_em` / `solve_em` residency, especially the nonhydro post-`sumflux` boundary-update, second-`calc_p_rho`, and `p`-halo segment
 - deeper caller-side scratch ownership above scalar/advection seams
 - nesting exchange ownership below mediation and into `RSL_LITE`
 - restart/history ownership as a fully selective system

@@ -158,6 +158,159 @@ CONTAINS
 
 !------------------------------------------------------------------------
 
+   SUBROUTINE spec_bdyupdate_ph_smallstep( ph_save, field,           &
+                                           field_tend, mu_tend, muts,  &
+                                           c1, c2, dt,                 &
+                                           variable_in, config_flags,  &
+                                           spec_zone,                  &
+                                           ids,ide, jds,jde, kds,kde,  & ! domain dims
+                                           ims,ime, jms,jme, kms,kme,  & ! memory dims
+                                           ips,ipe, jps,jpe, kps,kpe,  & ! patch  dims
+                                           its,ite, jts,jte, kts,kte )
+
+!  Narrow small-step geopotential specified-boundary update for the
+!  experimental device-owned acoustic path.
+
+      IMPLICIT NONE
+
+      INTEGER,      INTENT(IN   )    :: ids,ide, jds,jde, kds,kde
+      INTEGER,      INTENT(IN   )    :: ims,ime, jms,jme, kms,kme
+      INTEGER,      INTENT(IN   )    :: ips,ipe, jps,jpe, kps,kpe
+      INTEGER,      INTENT(IN   )    :: its,ite, jts,jte, kts,kte
+      INTEGER,      INTENT(IN   )    :: spec_zone
+      CHARACTER,    INTENT(IN   )    :: variable_in
+      REAL,         INTENT(IN   )    :: dt
+
+
+      REAL,  DIMENSION( ims:ime , kms:kme , jms:jme ), INTENT(INOUT) :: field
+      REAL,  DIMENSION( ims:ime , kms:kme , jms:jme ), INTENT(IN   ) :: field_tend, ph_save
+      REAL,  DIMENSION( ims:ime , jms:jme ), INTENT(IN   ) :: mu_tend, muts
+      REAL,  DIMENSION( kms:kme ), INTENT(IN   ) :: c1, c2
+      TYPE( grid_config_rec_type ) config_flags
+
+      CHARACTER  :: variable
+      INTEGER    :: i, j, k, ibs, ibe, jbs, jbe, itf, jtf, ktf
+      INTEGER    :: b_dist, b_limit
+      REAL       :: mu_old_local, mu_ratio, denom
+      LOGICAL    :: periodic_x
+
+      periodic_x = config_flags%periodic_x
+
+      variable = variable_in
+
+      IF (variable == 'U') variable = 'u'
+      IF (variable == 'V') variable = 'v'
+      IF (variable == 'M') variable = 'm'
+      IF (variable == 'H') variable = 'h'
+
+      ibs = ids
+      ibe = ide-1
+      itf = min(ite,ide-1)
+      jbs = jds
+      jbe = jde-1
+      jtf = min(jte,jde-1)
+      ktf = kde-1
+      IF (variable == 'u') ibe = ide
+      IF (variable == 'u') itf = min(ite,ide)
+      IF (variable == 'v') jbe = jde
+      IF (variable == 'v') jtf = min(jte,jde)
+      IF (variable == 'm') ktf = kte
+      IF (variable == 'h') ktf = kte
+
+      IF (jts - jbs .lt. spec_zone) THEN
+! Y-start boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+        !$acc parallel loop collapse(2) present(field,field_tend,ph_save,mu_tend,muts,c1,c2) &
+        !$acc& private(b_dist,b_limit,mu_old_local,mu_ratio,denom)
+#endif
+        DO j = jts, min(jtf,jbs+spec_zone-1)
+          DO k = kts, ktf
+            b_dist = j - jbs
+            b_limit = b_dist
+            IF(periodic_x)b_limit = 0
+            DO i = max(its,b_limit+ibs), min(itf,ibe-b_limit)
+              mu_old_local = muts(i,j) - dt*mu_tend(i,j)
+              denom = c1(k)*muts(i,j) + c2(k)
+              mu_ratio = (c1(k)*mu_old_local + c2(k)) / denom
+              field(i,k,j) = field(i,k,j)*mu_ratio +                    &
+                             dt*field_tend(i,k,j)/denom +                &
+                             ph_save(i,k,j)*(mu_ratio - 1.)
+            ENDDO
+          ENDDO
+        ENDDO
+      ENDIF
+
+      IF (jbe - jtf .lt. spec_zone) THEN
+! Y-end boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+        !$acc parallel loop collapse(2) present(field,field_tend,ph_save,mu_tend,muts,c1,c2) &
+        !$acc& private(b_dist,b_limit,mu_old_local,mu_ratio,denom)
+#endif
+        DO j = max(jts,jbe-spec_zone+1), jtf
+          DO k = kts, ktf
+            b_dist = jbe - j
+            b_limit = b_dist
+            IF(periodic_x)b_limit = 0
+            DO i = max(its,b_limit+ibs), min(itf,ibe-b_limit)
+              mu_old_local = muts(i,j) - dt*mu_tend(i,j)
+              denom = c1(k)*muts(i,j) + c2(k)
+              mu_ratio = (c1(k)*mu_old_local + c2(k)) / denom
+              field(i,k,j) = field(i,k,j)*mu_ratio +                    &
+                             dt*field_tend(i,k,j)/denom +                &
+                             ph_save(i,k,j)*(mu_ratio - 1.)
+            ENDDO
+          ENDDO
+        ENDDO
+      ENDIF
+
+      IF(.NOT.periodic_x)THEN
+        IF (its - ibs .lt. spec_zone) THEN
+! X-start boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+          !$acc parallel loop collapse(2) present(field,field_tend,ph_save,mu_tend,muts,c1,c2) &
+          !$acc& private(b_dist,mu_old_local,mu_ratio,denom)
+#endif
+          DO i = its, min(itf,ibs+spec_zone-1)
+            DO k = kts, ktf
+              b_dist = i - ibs
+              DO j = max(jts,b_dist+jbs+1), min(jtf,jbe-b_dist-1)
+                mu_old_local = muts(i,j) - dt*mu_tend(i,j)
+                denom = c1(k)*muts(i,j) + c2(k)
+                mu_ratio = (c1(k)*mu_old_local + c2(k)) / denom
+                field(i,k,j) = field(i,k,j)*mu_ratio +                  &
+                               dt*field_tend(i,k,j)/denom +              &
+                               ph_save(i,k,j)*(mu_ratio - 1.)
+              ENDDO
+            ENDDO
+          ENDDO
+        ENDIF
+
+        IF (ibe - itf .lt. spec_zone) THEN
+! X-end boundary
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+          !$acc parallel loop collapse(2) present(field,field_tend,ph_save,mu_tend,muts,c1,c2) &
+          !$acc& private(b_dist,mu_old_local,mu_ratio,denom)
+#endif
+          DO i = max(its,ibe-spec_zone+1), itf
+            DO k = kts, ktf
+              b_dist = ibe - i
+              DO j = max(jts,b_dist+jbs+1), min(jtf,jbe-b_dist-1)
+                mu_old_local = muts(i,j) - dt*mu_tend(i,j)
+                denom = c1(k)*muts(i,j) + c2(k)
+                mu_ratio = (c1(k)*mu_old_local + c2(k)) / denom
+                field(i,k,j) = field(i,k,j)*mu_ratio +                  &
+                               dt*field_tend(i,k,j)/denom +              &
+                               ph_save(i,k,j)*(mu_ratio - 1.)
+              ENDDO
+            ENDDO
+          ENDDO
+        ENDIF
+      ENDIF
+
+   END SUBROUTINE spec_bdyupdate_ph_smallstep
+
+!------------------------------------------------------------------------
+
    SUBROUTINE relax_bdy_dry ( config_flags,                                    &
                               ru_tendf, rv_tendf, ph_tendf, t_tendf,           &
                               rw_tendf, mu_tend, c1h, c2h, c1f, c2f,           &

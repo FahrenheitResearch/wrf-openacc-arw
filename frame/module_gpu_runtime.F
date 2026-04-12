@@ -567,8 +567,6 @@ CONTAINS
       CALL wrf_gpu_sync_real_3d_ref( grid%t_save,  WRF_GPU_SYNC_TO_HOST )
       CALL wrf_gpu_sync_real_3d_ref( grid%u_save,  WRF_GPU_SYNC_TO_HOST )
       CALL wrf_gpu_sync_real_3d_ref( grid%v_save,  WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%ru_tend, WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%rv_tend, WRF_GPU_SYNC_TO_HOST )
       CALL wrf_gpu_sync_real_2d_ref( grid%mu_1,    WRF_GPU_SYNC_TO_HOST )
       CALL wrf_gpu_sync_real_2d_ref( grid%mu_2,    WRF_GPU_SYNC_TO_HOST )
       CALL wrf_gpu_sync_real_2d_ref( grid%mudf,    WRF_GPU_SYNC_TO_HOST )
@@ -594,8 +592,6 @@ CONTAINS
       CALL wrf_gpu_sync_real_3d_ref( grid%t_save,  WRF_GPU_SYNC_TO_DEVICE )
       CALL wrf_gpu_sync_real_3d_ref( grid%u_save,  WRF_GPU_SYNC_TO_DEVICE )
       CALL wrf_gpu_sync_real_3d_ref( grid%v_save,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%ru_tend, WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%rv_tend, WRF_GPU_SYNC_TO_DEVICE )
       CALL wrf_gpu_sync_real_2d_ref( grid%mu_1,    WRF_GPU_SYNC_TO_DEVICE )
       CALL wrf_gpu_sync_real_2d_ref( grid%mu_2,    WRF_GPU_SYNC_TO_DEVICE )
       CALL wrf_gpu_sync_real_2d_ref( grid%mudf,    WRF_GPU_SYNC_TO_DEVICE )
@@ -642,8 +638,6 @@ CONTAINS
       CALL wrf_gpu_sync_real_3d_ref( grid%p,    WRF_GPU_SYNC_TO_DEVICE )
       CALL wrf_gpu_sync_real_2d_ref( grid%mu_2, WRF_GPU_SYNC_TO_DEVICE )
       CALL wrf_gpu_sync_real_2d_ref( grid%mudf, WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mut,  WRF_GPU_SYNC_TO_DEVICE )
-
    END SUBROUTINE wrf_gpu_smallstep_phys_bc_host_fence_end
 
    SUBROUTINE wrf_gpu_smallstep_finish_host_fence_begin( grid )
@@ -671,22 +665,22 @@ CONTAINS
       IF ( domain_slot .LE. 0 ) RETURN
       IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
 
-      CALL wrf_gpu_sync_real_3d_ref( grid%u_2,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%v_2,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%w_2,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%t_2,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%ww,   WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%ph_2, WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mu_2, WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mut,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%muts, WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%muus, WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%muvs, WRF_GPU_SYNC_TO_DEVICE )
-
       IF ( sync_fluxes ) THEN
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_2, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%muts, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%u_2,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%v_2,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%w_2,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%t_2,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%ww,   WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%ph_2, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mut,  WRF_GPU_SYNC_TO_DEVICE )
          CALL wrf_gpu_sync_real_3d_ref( grid%ru_m, WRF_GPU_SYNC_TO_DEVICE )
          CALL wrf_gpu_sync_real_3d_ref( grid%rv_m, WRF_GPU_SYNC_TO_DEVICE )
          CALL wrf_gpu_sync_real_3d_ref( grid%ww_m, WRF_GPU_SYNC_TO_DEVICE )
+      ELSE
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_2, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%muts, WRF_GPU_SYNC_TO_DEVICE )
       END IF
 
    END SUBROUTINE wrf_gpu_smallstep_finish_host_fence_end

@@ -671,6 +671,14 @@ SUBROUTINE calc_p_rho( al, p, ph,                    &
    k_start = kts
    k_end = min(kte,kde-1)
 
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && ( defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP) || defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) )
+! calc_p_rho now sits inside caller-owned prep/body regions in solve_em for the
+! experimental lanes, so require the working state to already be resident here.
+  !$acc data present(al,p,ph,alt,t_2,t_1,c2a,pm1,mu,mut,        &
+  !$acc&             c1h,c2h,c1f,c2f,c3h,c4h,c3f,c4f,          &
+  !$acc&             znu,rdnw,dnw)
+#endif
+
    IF (non_hydrostatic) THEN
      WRF_ACC_CALC_PRHO_LOOP_COLLAPSE_3
      DO j=j_start, j_end
@@ -728,6 +736,9 @@ SUBROUTINE calc_p_rho( al, p, ph,                    &
        ENDDO
        ENDDO
      END IF
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && ( defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP) || defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) )
+  !$acc end data
+#endif
 END SUBROUTINE calc_p_rho
 !----------------------------------------------------------------------
 SUBROUTINE calc_coef_w( a,alpha,gamma,              &
@@ -966,7 +977,15 @@ SUBROUTINE advance_uv ( u, ru_tend, v, rv_tend,        &
    dy = 1./rdy
 !  start real calculations.
 !  first, u
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+  !$acc data present(u,v,ru_tend,rv_tend,                                 &
+  !$acc&             p,pb,ph,php,alt,al,mu,muu,muv,cqu,cqv,mudf,          &
+  !$acc&             c1h,c2h,c1f,c2f,c3h,c4h,c3f,c4f,                     &
+  !$acc&             msfux,msfuy,msfvx,msfvx_inv,msfvy,fnm,fnp,rdnw)      &
+  !$acc&      create(dpn,dpxy,mudf_xy)
+#else
   WRF_ACC_ADVANCE_UV_LOCAL_DATA_OPEN
+#endif
   u_outer_j_loop: DO j = j_start, j_end
    WRF_ACC_ADVANCE_UV_TEND_LOOP_COLLAPSE_2
    DO k = k_start, k_end
@@ -1128,7 +1147,11 @@ SUBROUTINE advance_uv ( u, ru_tend, v, rv_tend,        &
      ENDDO
    END IF
   ENDDO  v_outer_j_loop
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+  !$acc end data
+#else
   WRF_ACC_ADVANCE_UV_LOCAL_DATA_CLOSE
+#endif
   ! The check for j_start_vp and j_end_vp makes sure that the edges in v
   ! are not updated.  Let's add a polar boundary condition check here for
   ! safety to ensure that v at the poles never gets to be non-zero in the
@@ -1249,7 +1272,16 @@ SUBROUTINE advance_mu_t( ww, ww_1, u, u_1, v, v_1,            &
   i_endu = ite
   j_endv = jte
 !        CALCULATION OF WW (dETA/dt)
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+  !$acc data present(ww,ww_1,u,u_1,v,v_1,t,t_1,t_ave,uam,vam,wwam,      &
+  !$acc&             mu,muave,muts,mudf,muu,muv,mut,                    &
+  !$acc&             msfux,msfuy,msfvx,msfvx_inv,msfvy,msftx,msfty,     &
+  !$acc&             mu_tend,fnm,fnp,dnw,rdnw,                          &
+  !$acc&             c1h,c2h,c1f,c2f,c3h,c4h,c3f,c4f,ft)               &
+  !$acc&      create(wdtn,dvdxi,dmdt)
+#else
   WRF_ACC_ADVANCE_MUT_LOCAL_DATA_OPEN
+#endif
    DO j = j_start, j_end
      WRF_ACC_ADVANCE_MUT_LOCAL_LOOP
      DO i=i_start, i_end
@@ -1372,7 +1404,11 @@ SUBROUTINE advance_mu_t( ww, ww_1, u, u_1, v, v_1,            &
      ENDDO
      ENDDO
    ENDDO
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+  !$acc end data
+#else
   WRF_ACC_ADVANCE_MUT_LOCAL_DATA_CLOSE
+#endif
 END SUBROUTINE advance_mu_t
           
 !------------------------------------------------------------
@@ -1390,7 +1426,8 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
                       config_flags, top_lid,      &
                       ids,ide, jds,jde, kds,kde,  & ! domain dims
                       ims,ime, jms,jme, kms,kme,  & ! memory dims
-                      its,ite, jts,jte, kts,kte  )  ! tile   dims
+                      its,ite, jts,jte, kts,kte,  & ! tile   dims
+                      msft_inv, rhs, wdwn         )
 ! We have used msfty for msft_inv but have not thought through w equation
 ! pieces properly yet, so we will have to hope that it is okay
 ! We think we have found a slight error in surface w calculation
@@ -1450,9 +1487,8 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
                                 epssm
       REAL, DIMENSION( kms:kme ),INTENT(IN   ) :: c1h, c2h, c1f, c2f, &
                                                   c3h, c4h, c3f, c4f
-!  Stack based 3d data, tile size.
-      REAL, DIMENSION( its:ite ) :: mut_inv, msft_inv
-      REAL, DIMENSION( its:ite, kts:kte ) :: rhs, wdwn
+      REAL, DIMENSION( ims:ime ), INTENT(INOUT) :: msft_inv
+      REAL, DIMENSION( ims:ime, kms:kme ), INTENT(INOUT) :: rhs, wdwn
       INTEGER :: i,j,k, i_start, i_end, j_start, j_end, k_start, k_end
       real :: htop,hbot,hdepth,hk
       real    :: pi,dampmag,dampwt_local
@@ -1502,7 +1538,17 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
 !   here as usual rho -> ~'mu'
 !
 !  'u,v,w' sent here must be coupled variables (= rho w/my etc.) by their usage
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+  !$acc data present(t_2ave,w,ph,                                        &
+  !$acc&             rw_tend,ww,w_save,u,v,t_2,t_1,ph_1,phb,ph_tend,     &
+  !$acc&             alpha,gamma,a,c2a,cqw,alb,alt,                      &
+  !$acc&             mu1,mut,muave,muts,ht,msftx,msfty,                  &
+  !$acc&             fnp,fnm,rdnw,rdn,dnw,                               &
+  !$acc&             c1h,c2h,c1f,c2f,c3h,c4h,c3f,c4f,                    &
+  !$acc&             msft_inv,rhs,wdwn)
+#else
   WRF_ACC_ADVANCE_W_LOCAL_DATA_OPEN
+#endif
     WRF_ACC_ADVANCE_W_LOCAL_LOOP
     DO i=i_start, i_end
       rhs(i,1) = 0.
@@ -1681,7 +1727,11 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
     ENDDO
 
   ENDDO j_loop_w
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
+  !$acc end data
+#else
   WRF_ACC_ADVANCE_W_LOCAL_DATA_CLOSE
+#endif
 
 END SUBROUTINE advance_w
 
@@ -1854,8 +1904,6 @@ SUBROUTINE sumflux ( ru, rv, ww,                             &
     END IF
 
   ENDIF
-
-
 END SUBROUTINE sumflux
 
 !---------------------------------------------------------------------
