@@ -33,7 +33,7 @@ That is the current public baseline. Broader physics coverage exists only in par
 |---|---|---|
 | Default NVHPC/OpenACC | `20260412T0151Z-default` | `exit 0`, `6 wrfout`, `113 s` |
 | Experimental host-fence NVHPC/OpenACC | `20260412T1620Z-hostfences-restore-calccoef` | `exit 0`, `6 wrfout`, `159 s` |
-| Nested MPI/OpenACC short smoke | `nested-smoke-2021-mpi-short-mpi-allocmem-waitall-5min` | `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing |
+| Nested MPI/OpenACC short smoke | `nested-smoke-2021-mpi-short-period-waitall-5min` | `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing |
 | Nested MPI/OpenACC repeated 1-hour loop | `overnight-20260412` | six local repeated one-hour nested runs completed through `2021-12-30_18:00:00` |
 
 Derived single-domain checkpoint numbers for the current short control:
@@ -50,6 +50,7 @@ Derived single-domain checkpoint numbers for the current short control:
 - The nonhydro `p`-halo segment now has an explicit begin/end ownership seam in [solve_em.F](../dyn_em/solve_em.F) and [module_gpu_runtime.F](../frame/module_gpu_runtime.F) instead of the older overloaded return hook.
 - `RSL_LITE` now reuses MPI-allocated host send/recv buffers in [buf_for_proc.c](../external/RSL_LITE/buf_for_proc.c), which gives the active MPI lane pinned host staging without changing the MPI ABI.
 - The active `RSL_LITE_EXCH_X/Y` path now uses `MPI_Waitall` in [c_code.c](../external/RSL_LITE/c_code.c) instead of a serial wait chain.
+- The periodic exchange path used by [PERIOD_BDY_EM_B3_inline.inc](../build-openacc-nvhpc-mpi/inc/PERIOD_BDY_EM_B3_inline.inc) now uses `MPI_Waitall` in [period.c](../external/RSL_LITE/period.c) instead of serialized waits.
 - The active surface/PBL stack has materially less wrapper and staging overhead than it started with.
 - WSM6 remains the strongest GPU physics foothold.
 - The scalar path has real structural work in [module_em.F](../dyn_em/module_em.F) and [module_advect_em.F](../dyn_em/module_advect_em.F), including the current positive-definite `h5/v3` experimental seam.
@@ -71,7 +72,7 @@ Derived single-domain checkpoint numbers for the current short control:
 
 - finish the next coarse nonhydro `small_step_em` / `solve_em` ownership cut around the post-`sumflux` boundary-update, second-`calc_p_rho`, and `p`-halo segment
 - keep deeper caller-side ownership work above the `advect_scalar_pd` seam where it feeds the active positive-definite moisture path
-- narrow nested host staging further and eventually push below mediation into `RSL_LITE`, now starting from the retained pinned-buffer + `Waitall` transport line
+- narrow nested host staging further and eventually push below mediation into `RSL_LITE`, now starting from the retained pinned-buffer + `Waitall` transport line in both `c_code.c` and `period.c`
 - widen validated physics coverage beyond the current active stack only after the core small-step ownership path is less hybrid
 
 ## Deeper Report

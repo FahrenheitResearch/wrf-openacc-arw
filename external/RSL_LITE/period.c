@@ -363,19 +363,16 @@ void RSL_LITE_PACK_PERIOD ( int* Fcomm0, char * buf , int * shw0 , int * typesiz
 #endif
 }
 
-#ifndef STUBMPI
-static MPI_Request yp_recv, ym_recv, yp_send, ym_send ;
-static MPI_Request xp_recv, xm_recv, xp_send, xm_send ;
-#endif
-
 void RSL_LITE_EXCH_PERIOD_X ( int * Fcomm0, int *me0, int * np0 , int * np_x0 , int * np_y0 )
 {
 #ifndef STUBMPI
   int me, np, np_x, np_y ;
   int yp, ym, xp, xm, nbytes ;
-  MPI_Status stat ;
+  MPI_Status stats[4] ;
+  MPI_Request reqs[4] ;
   MPI_Comm comm, *comm0, dummy_comm ;
   int coords[2] ;
+  int nreq ;
 
   comm0 = &dummy_comm ;
   *comm0 = MPI_Comm_f2c( *Fcomm0 ) ;
@@ -383,27 +380,27 @@ void RSL_LITE_EXCH_PERIOD_X ( int * Fcomm0, int *me0, int * np0 , int * np_x0 , 
   comm = *comm0 ; me = *me0 ; np = *np0 ; np_x = *np_x0 ; np_y = *np_y0 ;
 
   if ( np_x > 1 ) {
+    nreq = 0 ;
     MPI_Comm_rank( *comm0, &me ) ;
     MPI_Cart_coords( *comm0, me, 2, coords ) ;
     MPI_Cart_shift( *comm0, 1, 1, &xm, &xp ) ;
     if ( coords[1] == np_x - 1 ) {   /* proc on right hand side of domain */
       nbytes = buffer_size_for_proc( xp, RSL_RECVBUF ) ;
-      MPI_Irecv ( buffer_for_proc( xp , xp_curs, RSL_RECVBUF ), nbytes, MPI_CHAR, xp, me, comm, &xp_recv ) ;
+      MPI_Irecv ( buffer_for_proc( xp , xp_curs, RSL_RECVBUF ), nbytes, MPI_CHAR, xp, me, comm, &reqs[nreq++] ) ;
     }
     if ( coords[1] == 0 ) {          /* proc on left hand side of domain */
       nbytes = buffer_size_for_proc( xm, RSL_RECVBUF ) ;
-      MPI_Irecv ( buffer_for_proc( xm, xm_curs, RSL_RECVBUF ), nbytes, MPI_CHAR, xm, me, comm, &xm_recv ) ;
+      MPI_Irecv ( buffer_for_proc( xm, xm_curs, RSL_RECVBUF ), nbytes, MPI_CHAR, xm, me, comm, &reqs[nreq++] ) ;
     }
     if ( coords[1] == np_x - 1 ) {   /* proc on right hand side of domain */
-      MPI_Isend ( buffer_for_proc( xp , 0,       RSL_SENDBUF ), xp_curs, MPI_CHAR, xp, xp, comm, &xp_send ) ;
+      MPI_Isend ( buffer_for_proc( xp , 0,       RSL_SENDBUF ), xp_curs, MPI_CHAR, xp, xp, comm, &reqs[nreq++] ) ;
     }
     if ( coords[1] == 0 ) {          /* proc on left hand side of domain */
-      MPI_Isend ( buffer_for_proc( xm, 0,       RSL_SENDBUF ), xm_curs, MPI_CHAR, xm, xm, comm, &xm_send ) ;
+      MPI_Isend ( buffer_for_proc( xm, 0,       RSL_SENDBUF ), xm_curs, MPI_CHAR, xm, xm, comm, &reqs[nreq++] ) ;
     }
-    if ( coords[1] == np_x - 1 ) MPI_Wait( &xp_recv, &stat ) ; 
-    if ( coords[1] == 0        ) MPI_Wait( &xm_recv, &stat ) ; 
-    if ( coords[1] == np_x - 1 ) MPI_Wait( &xp_send, &stat ) ; 
-    if ( coords[1] == 0        ) MPI_Wait( &xm_send, &stat ) ;
+    if ( nreq > 0 ) {
+      MPI_Waitall( nreq, reqs, stats ) ;
+    }
   }
 #else 
 # ifndef MS_SUA
@@ -419,9 +416,11 @@ void RSL_LITE_EXCH_PERIOD_Y ( int * Fcomm0, int *me0, int * np0 , int * np_x0 , 
 #ifndef STUBMPI
   int me, np, np_x, np_y ;
   int yp, ym, xp, xm, nbytes ;
-  MPI_Status stat ;
+  MPI_Status stats[4] ;
+  MPI_Request reqs[4] ;
   MPI_Comm comm, *comm0, dummy_comm ;
   int coords[2] ;
+  int nreq ;
 
   comm0 = &dummy_comm ;
   *comm0 = MPI_Comm_f2c( *Fcomm0 ) ;
@@ -429,27 +428,27 @@ void RSL_LITE_EXCH_PERIOD_Y ( int * Fcomm0, int *me0, int * np0 , int * np_x0 , 
   comm = *comm0 ; me = *me0 ; np = *np0 ; np_x = *np_x0 ; np_y = *np_y0 ;
 
   if ( np_y > 1 ) {
+    nreq = 0 ;
     MPI_Comm_rank( *comm0, &me ) ;
     MPI_Cart_coords( *comm0, me, 2, coords ) ;
     MPI_Cart_shift( *comm0, 0, 1, &ym, &yp ) ;
     if ( coords[0] == np_y - 1 ) {   /* proc on top of domain */
       nbytes = buffer_size_for_proc( yp, RSL_RECVBUF ) ;
-      MPI_Irecv ( buffer_for_proc( yp , yp_curs, RSL_RECVBUF ), nbytes, MPI_CHAR, yp, me, comm, &yp_recv ) ;
+      MPI_Irecv ( buffer_for_proc( yp , yp_curs, RSL_RECVBUF ), nbytes, MPI_CHAR, yp, me, comm, &reqs[nreq++] ) ;
     }
     if ( coords[0] == 0 ) {          /* proc on bottom of domain */
       nbytes = buffer_size_for_proc( ym, RSL_RECVBUF ) ;
-      MPI_Irecv ( buffer_for_proc( ym, ym_curs, RSL_RECVBUF ), nbytes, MPI_CHAR, ym, me, comm, &ym_recv ) ;
+      MPI_Irecv ( buffer_for_proc( ym, ym_curs, RSL_RECVBUF ), nbytes, MPI_CHAR, ym, me, comm, &reqs[nreq++] ) ;
     }
     if ( coords[0] == np_y - 1 ) {   /* proc on top of domain */
-      MPI_Isend ( buffer_for_proc( yp , 0,       RSL_SENDBUF ), yp_curs, MPI_CHAR, yp, yp, comm, &yp_send ) ;
+      MPI_Isend ( buffer_for_proc( yp , 0,       RSL_SENDBUF ), yp_curs, MPI_CHAR, yp, yp, comm, &reqs[nreq++] ) ;
     }
     if ( coords[0] == 0 ) {          /* proc on bottom of domain */
-      MPI_Isend ( buffer_for_proc( ym, 0,       RSL_SENDBUF ), ym_curs, MPI_CHAR, ym, ym, comm, &ym_send ) ;
+      MPI_Isend ( buffer_for_proc( ym, 0,       RSL_SENDBUF ), ym_curs, MPI_CHAR, ym, ym, comm, &reqs[nreq++] ) ;
     }
-    if ( coords[0] == np_y - 1 ) MPI_Wait( &yp_recv, &stat ) ;
-    if ( coords[0] == 0        ) MPI_Wait( &ym_recv, &stat ) ;
-    if ( coords[0] == np_y - 1 ) MPI_Wait( &yp_send, &stat ) ;
-    if ( coords[0] == 0        ) MPI_Wait( &ym_send, &stat ) ;
+    if ( nreq > 0 ) {
+      MPI_Waitall( nreq, reqs, stats ) ;
+    }
   }
 #else
 # ifndef MS_SUA
@@ -459,4 +458,3 @@ fprintf(stderr,"RSL_LITE_EXCH_PERIOD_Y disabled\n") ;
   yp_curs = 0 ; ym_curs = 0 ; xp_curs = 0 ; xm_curs = 0 ;
 #endif
 }
-
