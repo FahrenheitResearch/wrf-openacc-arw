@@ -78,21 +78,20 @@ SUBROUTINE solve_em ( grid , config_flags  &
    USE module_llxy, ONLY : proj_cassini
    USE module_avgflx_em, ONLY : zero_avgflx, upd_avgflx
    USE module_cpl, ONLY : coupler_on, cpl_settime, cpl_store_input
-   USE module_gpu_runtime, ONLY : wrf_gpu_smallstep_uv_host_fence_begin,   &
-                                  wrf_gpu_smallstep_uv_host_fence_end,     &
-                                  wrf_gpu_smallstep_mu_t_host_fence_begin, &
-                                  wrf_gpu_smallstep_mu_t_host_fence_end,   &
-                                  wrf_gpu_smallstep_w_host_fence_begin,    &
-                                  wrf_gpu_smallstep_w_host_fence_end,      &
-                                  wrf_gpu_smallstep_prep_host_fence_end,   &
-                                  wrf_gpu_smallstep_init_host_fence_begin, &
-                                  wrf_gpu_smallstep_init_host_fence_end,   &
-                                  wrf_gpu_smallstep_early_host_fence_end,  &
-                                  wrf_gpu_smallstep_p_halo_host_fence_end,&
-                                  wrf_gpu_smallstep_phys_bc_host_fence_end,&
-                                  wrf_gpu_smallstep_finish_host_fence_begin,&
-                                  wrf_gpu_smallstep_finish_host_fence_end, &
-                                  wrf_gpu_smallstep_p_halo_host_fence_begin
+   USE module_gpu_runtime, ONLY : wrf_gpu_smallstep_uv_host_fence_begin,        &
+                                  wrf_gpu_smallstep_uv_host_fence_end,          &
+                                  wrf_gpu_smallstep_mu_t_host_fence_begin,      &
+                                  wrf_gpu_smallstep_mu_t_host_fence_end,        &
+                                  wrf_gpu_smallstep_w_host_fence_begin,         &
+                                  wrf_gpu_smallstep_w_host_fence_end,           &
+                                  wrf_gpu_smallstep_prep_host_fence_end,        &
+                                  wrf_gpu_smallstep_init_host_fence_begin,      &
+                                  wrf_gpu_smallstep_init_host_fence_end,        &
+                                  wrf_gpu_smallstep_early_host_fence_end,       &
+                                  wrf_gpu_smallstep_nonhydro_tail_host_fence_begin, &
+                                  wrf_gpu_smallstep_nonhydro_tail_host_fence_end,   &
+                                  wrf_gpu_smallstep_nonhydro_finish_host_fence_begin,&
+                                  wrf_gpu_smallstep_finish_host_fence_end
 
 #if (WRF_CMAQ == 1)
    use twoway_data_module
@@ -1997,7 +1996,7 @@ BENCH_END(cald_p_rho_tim)
           WRF_SMALLSTEP_TILE_LOOP_END
 
 #ifdef DM_PARALLEL
-          CALL wrf_gpu_smallstep_p_halo_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, smallstep_p_halo_pad )
+          CALL wrf_gpu_smallstep_nonhydro_tail_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, smallstep_p_halo_pad )
 #endif
        END IF
 #endif
@@ -2025,11 +2024,11 @@ BENCH_END(cald_p_rho_tim)
 #endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
-       IF ( smallstep_use_device_phys_bc_tail ) THEN
-#ifdef DM_PARALLEL
-          CALL wrf_gpu_smallstep_p_halo_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, smallstep_p_halo_pad )
-#endif
-       END IF
+ #ifdef DM_PARALLEL
+       CALL wrf_gpu_smallstep_nonhydro_tail_host_fence_end( grid, smallstep_use_device_phys_bc_tail, &
+                                                             ips, ipe, jps, jpe, kps, kpe,             &
+                                                             smallstep_p_halo_pad )
+ #endif
 #endif
 
 BENCH_START(phys_bc_tim)
@@ -2121,9 +2120,7 @@ BENCH_END(phys_bc_tim)
 #endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
-     IF ( .NOT. smallstep_use_device_phys_bc_tail ) THEN
-        CALL wrf_gpu_smallstep_finish_host_fence_begin( grid )
-     END IF
+     CALL wrf_gpu_smallstep_nonhydro_finish_host_fence_begin( grid, smallstep_use_device_phys_bc_tail )
 #endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && ( defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_FINISH) || defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) )

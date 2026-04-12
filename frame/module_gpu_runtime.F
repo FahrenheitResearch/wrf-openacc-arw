@@ -43,9 +43,11 @@ MODULE module_gpu_runtime
    PUBLIC :: wrf_gpu_smallstep_init_host_fence_begin
    PUBLIC :: wrf_gpu_smallstep_init_host_fence_end
    PUBLIC :: wrf_gpu_smallstep_early_host_fence_end
-   PUBLIC :: wrf_gpu_smallstep_phys_bc_host_fence_end
    PUBLIC :: wrf_gpu_smallstep_finish_host_fence_begin
    PUBLIC :: wrf_gpu_smallstep_finish_host_fence_end
+   PUBLIC :: wrf_gpu_smallstep_nonhydro_tail_host_fence_begin
+   PUBLIC :: wrf_gpu_smallstep_nonhydro_tail_host_fence_end
+   PUBLIC :: wrf_gpu_smallstep_nonhydro_finish_host_fence_begin
    PUBLIC :: wrf_gpu_sync_real_4d_scalar_member
 
    INTEGER, PARAMETER :: WRF_GPU_MAX_ACTIVE_DOMAINS = 32
@@ -684,17 +686,38 @@ CONTAINS
 
    END SUBROUTINE wrf_gpu_smallstep_early_host_fence_end
 
-   SUBROUTINE wrf_gpu_smallstep_phys_bc_host_fence_end( grid )
+   SUBROUTINE wrf_gpu_smallstep_nonhydro_tail_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
 
       TYPE(domain), INTENT(INOUT) :: grid
-      INTEGER :: domain_slot
+      INTEGER, INTENT(IN), OPTIONAL :: ips, ipe, jps, jpe, kps, kpe, halo_pad
 
-      domain_slot = wrf_gpu_domain_get_slot( grid%id, .FALSE. )
-      IF ( domain_slot .LE. 0 ) RETURN
-      IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
+      CALL wrf_gpu_smallstep_p_halo_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
 
-      CALL wrf_gpu_smallstep_p_halo_host_fence_end( grid )
-   END SUBROUTINE wrf_gpu_smallstep_phys_bc_host_fence_end
+   END SUBROUTINE wrf_gpu_smallstep_nonhydro_tail_host_fence_begin
+
+   SUBROUTINE wrf_gpu_smallstep_nonhydro_tail_host_fence_end( grid, device_phys_bc_tail, &
+                                                              ips, ipe, jps, jpe, kps, kpe, halo_pad )
+
+      TYPE(domain), INTENT(INOUT) :: grid
+      LOGICAL, INTENT(IN) :: device_phys_bc_tail
+      INTEGER, INTENT(IN), OPTIONAL :: ips, ipe, jps, jpe, kps, kpe, halo_pad
+
+      IF ( .NOT. device_phys_bc_tail ) RETURN
+
+      CALL wrf_gpu_smallstep_p_halo_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
+
+   END SUBROUTINE wrf_gpu_smallstep_nonhydro_tail_host_fence_end
+
+   SUBROUTINE wrf_gpu_smallstep_nonhydro_finish_host_fence_begin( grid, device_phys_bc_tail )
+
+      TYPE(domain), INTENT(INOUT) :: grid
+      LOGICAL, INTENT(IN) :: device_phys_bc_tail
+
+      IF ( device_phys_bc_tail ) RETURN
+
+      CALL wrf_gpu_smallstep_finish_host_fence_begin( grid )
+
+   END SUBROUTINE wrf_gpu_smallstep_nonhydro_finish_host_fence_begin
 
    SUBROUTINE wrf_gpu_smallstep_finish_host_fence_begin( grid )
 
