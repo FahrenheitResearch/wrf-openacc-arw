@@ -31,8 +31,8 @@ That is the current public baseline. Broader physics coverage exists only in par
 
 | Lane | Case | Result |
 |---|---|---|
-| Default NVHPC/OpenACC | `20260412T0151Z-default` | `exit 0`, `6 wrfout`, `113 s` |
-| Experimental host-fence NVHPC/OpenACC | `20260412T1620Z-hostfences-restore-calccoef` | `exit 0`, `6 wrfout`, `159 s` |
+| Default NVHPC/OpenACC | `20260412T2055Z-tailcontract-default` | `exit 0`, `6 wrfout`, `115 s` |
+| Experimental host-fence NVHPC/OpenACC | `20260412T2055Z-tailcontract-hostfences` | `exit 0`, `6 wrfout`, `159 s` |
 | Nested MPI/OpenACC short smoke | `nested-smoke-2021-mpi-short-nonhydro-tail-contract` | `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing |
 | Nested MPI/OpenACC repeated 1-hour loop | `overnight-20260412` | six local repeated one-hour nested runs completed through `2021-12-30_18:00:00` |
 

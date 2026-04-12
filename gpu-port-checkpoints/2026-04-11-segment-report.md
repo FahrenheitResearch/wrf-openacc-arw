@@ -20,6 +20,7 @@ The repository moved materially past the original public checkpoint after this r
 - The retained `RSL_LITE` periodic exchange path now also uses `MPI_Waitall` in `external/RSL_LITE/period.c`; on the real nested MPI witness this improved the `PERIOD_BDY_EM_B3` path enough to move the short 5-minute case from the rollback line's `d01` `11.59 s` first parent step / `13.54 s` mean-over-seven to the new retained `8.94 s` first parent step / `12.16 s` mean-over-twenty-five.
 - The latest retained control-path change is a runtime-level nonhydro tail contract in `frame/module_gpu_runtime.F` plus matching `solve_em.F` call sites, so the active suffix is expressed as one named ownership seam instead of ad hoc halo/finish fence assembly.
 - That control-contract refactor passed the short nested MPI/OpenACC witness in `nested-smoke-2021-mpi-short-nonhydro-tail-contract` through `2021-12-30_17:05:00` with invariant checks passing.
+- Refreshed remote short validations on the same retained branch held the current bands: `20260412T2055Z-tailcontract-default = 115 s` and `20260412T2055Z-tailcontract-hostfences = 159 s`.
 - A direct `RSL_LITE_PACK` fast-path rewrite in `external/RSL_LITE/c_code.c` was tested on the real MPI witness and rejected because it regressed `d01` timings; that experiment is fully backed out.
 - The latest retained nested MPI smoke is `nested-smoke-2021-mpi-short-nonhydro-tail-contract`, which finished `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing.
 
