@@ -88,6 +88,7 @@ SUBROUTINE solve_em ( grid , config_flags  &
                                   wrf_gpu_smallstep_init_host_fence_begin, &
                                   wrf_gpu_smallstep_init_host_fence_end,   &
                                   wrf_gpu_smallstep_early_host_fence_end,  &
+                                  wrf_gpu_smallstep_p_halo_host_fence_end,&
                                   wrf_gpu_smallstep_phys_bc_host_fence_end,&
                                   wrf_gpu_smallstep_finish_host_fence_begin,&
                                   wrf_gpu_smallstep_finish_host_fence_end, &
@@ -145,6 +146,7 @@ SUBROUTINE solve_em ( grid , config_flags  &
 
    REAL                            :: t_new, time_duration_of_lbcs
    LOGICAL                         :: smallstep_use_device_phys_bc_tail
+   INTEGER                         :: smallstep_p_halo_pad
    
 ! begin WRF-CMAQ twoway coupled model block
    integer       :: twoway_jdate,    &  ! CMAQ current job date
@@ -1417,8 +1419,10 @@ BENCH_END(set_phys_bc2_tim)
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
      smallstep_use_device_phys_bc_tail = config_flags%non_hydrostatic .AND.   &
                                          smallstep_phys_bc_tail_supported( config_flags )
+     smallstep_p_halo_pad = MERGE( 2, 1, config_flags%periodic_x .OR. config_flags%periodic_y )
 #else
      smallstep_use_device_phys_bc_tail = .FALSE.
+     smallstep_p_halo_pad = 1
 #endif
      small_steps : DO iteration = 1 , number_of_small_timesteps
 
@@ -1993,7 +1997,7 @@ BENCH_END(cald_p_rho_tim)
           WRF_SMALLSTEP_TILE_LOOP_END
 
 #ifdef DM_PARALLEL
-          CALL wrf_gpu_smallstep_p_halo_host_fence_begin( grid )
+          CALL wrf_gpu_smallstep_p_halo_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, smallstep_p_halo_pad )
 #endif
        END IF
 #endif
@@ -2023,7 +2027,7 @@ BENCH_END(cald_p_rho_tim)
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
        IF ( smallstep_use_device_phys_bc_tail ) THEN
 #ifdef DM_PARALLEL
-          CALL wrf_gpu_smallstep_phys_bc_host_fence_end( grid )
+          CALL wrf_gpu_smallstep_p_halo_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, smallstep_p_halo_pad )
 #endif
        END IF
 #endif

@@ -35,6 +35,7 @@ MODULE module_gpu_runtime
    PUBLIC :: wrf_gpu_smallstep_w_host_fence_end
    PUBLIC :: wrf_gpu_smallstep_w_halo_host_fence_begin
    PUBLIC :: wrf_gpu_smallstep_p_halo_host_fence_begin
+   PUBLIC :: wrf_gpu_smallstep_p_halo_host_fence_end
    PUBLIC :: wrf_gpu_smallstep_w_halo_host_fence_end
    PUBLIC :: wrf_gpu_smallstep_flux_host_fence_begin
    PUBLIC :: wrf_gpu_smallstep_flux_host_fence_end
@@ -457,19 +458,78 @@ CONTAINS
 
    END SUBROUTINE wrf_gpu_smallstep_w_halo_host_fence_begin
 
-   SUBROUTINE wrf_gpu_smallstep_p_halo_host_fence_begin( grid )
+   SUBROUTINE wrf_gpu_smallstep_p_halo_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
 
       TYPE(domain), INTENT(INOUT) :: grid
+      INTEGER, INTENT(IN), OPTIONAL :: ips, ipe, jps, jpe, kps, kpe, halo_pad
       INTEGER :: domain_slot
+      INTEGER :: i, j
+      INTEGER :: halo_width
+      INTEGER :: i_end, j_end
 
       domain_slot = wrf_gpu_domain_get_slot( grid%id, .FALSE. )
       IF ( domain_slot .LE. 0 ) RETURN
       IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
 
-      CALL wrf_gpu_sync_real_3d_ref( grid%al, WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%p,  WRF_GPU_SYNC_TO_HOST )
+      IF ( PRESENT(ips) .AND. PRESENT(ipe) .AND. PRESENT(jps) .AND. PRESENT(jpe) .AND. &
+           PRESENT(kps) .AND. PRESENT(kpe) ) THEN
+         halo_width = 1
+         IF ( PRESENT(halo_pad) ) halo_width = MAX( 1, halo_pad )
+
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%ph_2, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%al,   ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%p,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mu_2, ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mudf, ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+      ELSE
+         CALL wrf_gpu_sync_real_3d_ref( grid%ph_2, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%al,   WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%p,    WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_2, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mudf, WRF_GPU_SYNC_TO_HOST )
+      END IF
+
+      i_end = UBOUND( grid%mu_2, 1 )
+      j_end = UBOUND( grid%mu_2, 2 )
+
+      DO j = LBOUND( grid%mu_2, 2 ), j_end
+      DO i = LBOUND( grid%mu_2, 1 ), i_end
+         grid%muts(i,j) = grid%mut(i,j) + grid%mu_2(i,j)
+      END DO
+      END DO
 
    END SUBROUTINE wrf_gpu_smallstep_p_halo_host_fence_begin
+
+   SUBROUTINE wrf_gpu_smallstep_p_halo_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
+
+      TYPE(domain), INTENT(INOUT) :: grid
+      INTEGER, INTENT(IN), OPTIONAL :: ips, ipe, jps, jpe, kps, kpe, halo_pad
+      INTEGER :: domain_slot
+      INTEGER :: halo_width
+
+      domain_slot = wrf_gpu_domain_get_slot( grid%id, .FALSE. )
+      IF ( domain_slot .LE. 0 ) RETURN
+      IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
+
+      IF ( PRESENT(ips) .AND. PRESENT(ipe) .AND. PRESENT(jps) .AND. PRESENT(jpe) .AND. &
+           PRESENT(kps) .AND. PRESENT(kpe) ) THEN
+         halo_width = 1
+         IF ( PRESENT(halo_pad) ) halo_width = MAX( 1, halo_pad )
+
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%ph_2, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%al,   ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%p,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mu_2, ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mudf, ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+      ELSE
+         CALL wrf_gpu_sync_real_3d_ref( grid%ph_2, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%al,   WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%p,    WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_2, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mudf, WRF_GPU_SYNC_TO_DEVICE )
+      END IF
+
+   END SUBROUTINE wrf_gpu_smallstep_p_halo_host_fence_end
 
    SUBROUTINE wrf_gpu_smallstep_w_halo_host_fence_end( grid )
 
@@ -633,11 +693,7 @@ CONTAINS
       IF ( domain_slot .LE. 0 ) RETURN
       IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
 
-      CALL wrf_gpu_sync_real_3d_ref( grid%ph_2, WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%al,   WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%p,    WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mu_2, WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mudf, WRF_GPU_SYNC_TO_DEVICE )
+      CALL wrf_gpu_smallstep_p_halo_host_fence_end( grid )
    END SUBROUTINE wrf_gpu_smallstep_phys_bc_host_fence_end
 
    SUBROUTINE wrf_gpu_smallstep_finish_host_fence_begin( grid )
@@ -1228,6 +1284,29 @@ CONTAINS
 
    END SUBROUTINE wrf_gpu_sync_real_2d_ref
 
+   SUBROUTINE wrf_gpu_sync_real_2d_ref_region( field, i_lo_in, i_hi_in, j_lo_in, j_hi_in, sync_mode )
+
+      REAL, DIMENSION(:,:), INTENT(INOUT) :: field
+      INTEGER, INTENT(IN) :: i_lo_in, i_hi_in, j_lo_in, j_hi_in, sync_mode
+      INTEGER :: i_lo, i_hi, j_lo, j_hi
+
+      i_lo = MAX( LBOUND( field, 1 ), i_lo_in )
+      i_hi = MIN( UBOUND( field, 1 ), i_hi_in )
+      j_lo = MAX( LBOUND( field, 2 ), j_lo_in )
+      j_hi = MIN( UBOUND( field, 2 ), j_hi_in )
+      IF ( i_lo .GT. i_hi .OR. j_lo .GT. j_hi ) RETURN
+
+      SELECT CASE ( sync_mode )
+      CASE ( WRF_GPU_SYNC_TO_DEVICE )
+!$acc update device(field(i_lo:i_hi,j_lo:j_hi))
+      CASE ( WRF_GPU_SYNC_TO_HOST )
+!$acc update host(field(i_lo:i_hi,j_lo:j_hi))
+      CASE DEFAULT
+         CALL wrf_gpu_sync_real_2d_ref( field, sync_mode )
+      END SELECT
+
+   END SUBROUTINE wrf_gpu_sync_real_2d_ref_region
+
    SUBROUTINE wrf_gpu_sync_real_3d_ref( field, sync_mode )
 
       REAL, DIMENSION(:,:,:), INTENT(INOUT) :: field
@@ -1245,6 +1324,31 @@ CONTAINS
       END SELECT
 
    END SUBROUTINE wrf_gpu_sync_real_3d_ref
+
+   SUBROUTINE wrf_gpu_sync_real_3d_ref_region( field, i_lo_in, i_hi_in, k_lo_in, k_hi_in, j_lo_in, j_hi_in, sync_mode )
+
+      REAL, DIMENSION(:,:,:), INTENT(INOUT) :: field
+      INTEGER, INTENT(IN) :: i_lo_in, i_hi_in, k_lo_in, k_hi_in, j_lo_in, j_hi_in, sync_mode
+      INTEGER :: i_lo, i_hi, j_lo, j_hi, k_lo, k_hi
+
+      i_lo = MAX( LBOUND( field, 1 ), i_lo_in )
+      i_hi = MIN( UBOUND( field, 1 ), i_hi_in )
+      k_lo = MAX( LBOUND( field, 2 ), k_lo_in )
+      k_hi = MIN( UBOUND( field, 2 ), k_hi_in )
+      j_lo = MAX( LBOUND( field, 3 ), j_lo_in )
+      j_hi = MIN( UBOUND( field, 3 ), j_hi_in )
+      IF ( i_lo .GT. i_hi .OR. k_lo .GT. k_hi .OR. j_lo .GT. j_hi ) RETURN
+
+      SELECT CASE ( sync_mode )
+      CASE ( WRF_GPU_SYNC_TO_DEVICE )
+!$acc update device(field(i_lo:i_hi,k_lo:k_hi,j_lo:j_hi))
+      CASE ( WRF_GPU_SYNC_TO_HOST )
+!$acc update host(field(i_lo:i_hi,k_lo:k_hi,j_lo:j_hi))
+      CASE DEFAULT
+         CALL wrf_gpu_sync_real_3d_ref( field, sync_mode )
+      END SELECT
+
+   END SUBROUTINE wrf_gpu_sync_real_3d_ref_region
 
    SUBROUTINE wrf_gpu_sync_real_2d( field, sync_mode )
 

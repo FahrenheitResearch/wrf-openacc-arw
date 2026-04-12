@@ -15,6 +15,10 @@ The repository moved materially past the original public checkpoint after this r
 - A missing `calc_coef_w` call in the compiled host-fence path was found by checking the actual preprocessed build and then fixed.
 - A device-side `calc_coef_w` ownership attempt was tested and rejected because it regressed to `176 s`; the active branch remains on the faster corrected host-side coefficient build.
 - The nested harness now includes [validate_wrf_run_invariants.py](../tools/validate_wrf_run_invariants.py), so the short nested smoke proves more than simple survival.
+- The nonhydro `p`-halo segment now has a retained explicit begin/end ownership seam instead of the earlier overloaded phys-BC return hook; the runtime side now publishes the real halo bundle and rebuilds `muts = mut + mu_2` on host ingress.
+- The retained `RSL_LITE` transport line now includes MPI-allocated host send/recv buffers in `external/RSL_LITE/buf_for_proc.c` and `MPI_Waitall` in `external/RSL_LITE/c_code.c`.
+- A direct `RSL_LITE_PACK` fast-path rewrite in `external/RSL_LITE/c_code.c` was tested on the real MPI witness and rejected because it regressed `d01` timings; that experiment is fully backed out.
+- The latest retained nested MPI smoke is `nested-smoke-2021-mpi-short-mpi-allocmem-waitall-5min`, which finished `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing.
 
 The main blocker description is also sharper than in the original text below: the current next coarse ownership cut is the nonhydro `small_step_em` / `solve_em` segment around post-`sumflux` boundary updates, the second `calc_p_rho`, and the `p`-halo exchange.
 

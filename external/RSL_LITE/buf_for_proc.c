@@ -66,12 +66,50 @@
 typedef struct bufdesc {
   char * buf ;
   int size ;
+  int use_mpi_alloc ;
 } bufdesc_t ;
 
 /* buftab[RSL_SENDBUF] is send buffer descriptor,
    buftab[RSL_RECVBUF] is recv buffer descriptor. */
 static bufdesc_t buftab[2][RSL_MAXPROC] ;
 static int first = 1 ;
+
+static char *
+rsl_buf_alloc( int size, int * use_mpi_alloc )
+{
+  char * ptr ;
+  ptr = NULL ;
+  *use_mpi_alloc = 0 ;
+#ifndef STUBMPI
+  {
+    int mpi_initialized, mpi_rc ;
+    MPI_Initialized( &mpi_initialized ) ;
+    if ( mpi_initialized ) {
+      mpi_rc = MPI_Alloc_mem( size, MPI_INFO_NULL, &ptr ) ;
+      if ( mpi_rc == MPI_SUCCESS && ptr != NULL ) {
+        *use_mpi_alloc = 1 ;
+        return ptr ;
+      }
+      ptr = NULL ;
+    }
+  }
+#endif
+  return RSL_MALLOC(char,size) ;
+}
+
+static void
+rsl_buf_free( char ** ptr, int use_mpi_alloc )
+{
+  if ( ptr == NULL || *ptr == NULL ) return ;
+#ifndef STUBMPI
+  if ( use_mpi_alloc ) {
+    MPI_Free_mem( *ptr ) ;
+    *ptr = NULL ;
+    return ;
+  }
+#endif
+  RSL_FREE( *ptr ) ;
+}
 
 /* 
    buffer_for_proc
@@ -97,7 +135,6 @@ buffer_for_proc( P, size, code )
       code ;		/* RSL_SENDBUF, RSL_RECVBUF, or RSL_FREEBUF */
 {
   int p ;
-  int i, j ;
   char mess[1024] ;
   char * ret ;
 
@@ -110,6 +147,8 @@ buffer_for_proc( P, size, code )
       buftab[1][p].buf  = NULL ;    
       buftab[0][p].size = 0 ;    
       buftab[1][p].size = 0 ;    
+      buftab[0][p].use_mpi_alloc = 0 ;
+      buftab[1][p].use_mpi_alloc = 0 ;
     }
     first = 0 ;
   }
@@ -121,12 +160,14 @@ buffer_for_proc( P, size, code )
   if ( code == RSL_FREEBUF )
   {
 /* fprintf(stderr,"buffer_for_proc freeing buffer %d\n",P) ; */
-    if ( buftab[0][P].buf != NULL ) RSL_FREE( buftab[0][P].buf ) ;
-    if ( buftab[1][P].buf != NULL ) RSL_FREE( buftab[1][P].buf ) ;
+    if ( buftab[0][P].buf != NULL ) rsl_buf_free( &(buftab[0][P].buf), buftab[0][P].use_mpi_alloc ) ;
+    if ( buftab[1][P].buf != NULL ) rsl_buf_free( &(buftab[1][P].buf), buftab[1][P].use_mpi_alloc ) ;
     buftab[0][P].buf  = NULL ;    
     buftab[1][P].buf  = NULL ;    
     buftab[0][P].size = 0 ;    
     buftab[1][P].size = 0 ;    
+    buftab[0][P].use_mpi_alloc = 0 ;
+    buftab[1][P].use_mpi_alloc = 0 ;
 /* show_tot_size() ; */
   }
   else if ( code == RSL_SENDBUF || code == RSL_RECVBUF )
@@ -138,8 +179,8 @@ fprintf(stderr,"buffer_for_proc %s %d : was %d, increasing to %d\n",
          (code == RSL_SENDBUF)?"RSL_SENDBUF":"RSL_RECVBUF",
 	 P,buftab[code][P].size, size+512) ;
 #endif
-      if ( buftab[code][P].buf != NULL ) RSL_FREE( buftab[code][P].buf ) ;
-      buftab[code][P].buf = RSL_MALLOC(char,size+512) ;
+      if ( buftab[code][P].buf != NULL ) rsl_buf_free( &(buftab[code][P].buf), buftab[code][P].use_mpi_alloc ) ;
+      buftab[code][P].buf = rsl_buf_alloc( size+512, &(buftab[code][P].use_mpi_alloc) ) ;
       buftab[code][P].size = size+512 ;
 /* show_tot_size() ; */
     }
@@ -162,6 +203,7 @@ show_tot_size()
 #ifndef MS_SUA
   fprintf(stderr,"Total bytes allocated for buffers: %d\n", acc ) ;
 #endif
+  return acc ;
 }
 
 int

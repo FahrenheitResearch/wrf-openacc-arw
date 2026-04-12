@@ -992,11 +992,6 @@ RSL_LITE_PACK_AD ( int * Fcomm0, char * buf , int * shw0 ,
 
 }
 #endif
-#ifndef STUBMPI
-static MPI_Request yp_recv, ym_recv, yp_send, ym_send ;
-static MPI_Request xp_recv, xm_recv, xp_send, xm_send ;
-#endif
-
 int
 RSL_LITE_EXCH_Y ( int * Fcomm0, int *me0, int * np0 , int * np_x0 , int * np_y0 ,
                   int * sendw_m, int * sendw_p, int * recvw_m , int * recvw_p )
@@ -1004,30 +999,32 @@ RSL_LITE_EXCH_Y ( int * Fcomm0, int *me0, int * np0 , int * np_x0 , int * np_y0 
   int me, np, np_x, np_y ;
   int yp, ym, xp, xm, ierr ;
 #ifndef STUBMPI
-  MPI_Status stat ;
+  MPI_Status stats[4] ;
+  MPI_Request reqs[4] ;
   MPI_Comm comm, *comm0, dummy_comm ;
+  int nreq ;
 
   comm0 = &dummy_comm ;
   *comm0 = MPI_Comm_f2c( *Fcomm0 ) ;
   comm = *comm0 ; me = *me0 ; np = *np0 ; np_x = *np_x0 ; np_y = *np_y0 ;
   if ( np_y > 1 ) {
+    nreq = 0 ;
     MPI_Cart_shift( *comm0, 0, 1, &ym, &yp ) ;
     if ( yp != MPI_PROC_NULL && *recvw_p > 0 ) {
-      ierr=MPI_Irecv ( buffer_for_proc( yp, yp_curs_recv, RSL_RECVBUF ), yp_curs_recv, MPI_CHAR, yp, me, comm, &yp_recv ) ;
+      ierr=MPI_Irecv ( buffer_for_proc( yp, yp_curs_recv, RSL_RECVBUF ), yp_curs_recv, MPI_CHAR, yp, me, comm, &reqs[nreq++] ) ;
     }
     if ( ym != MPI_PROC_NULL && *recvw_m > 0 ) {
-      ierr=MPI_Irecv ( buffer_for_proc( ym, ym_curs_recv, RSL_RECVBUF ), ym_curs_recv, MPI_CHAR, ym, me, comm, &ym_recv ) ;
+      ierr=MPI_Irecv ( buffer_for_proc( ym, ym_curs_recv, RSL_RECVBUF ), ym_curs_recv, MPI_CHAR, ym, me, comm, &reqs[nreq++] ) ;
     }
     if ( yp != MPI_PROC_NULL && *sendw_p > 0 ) {
-      ierr=MPI_Isend ( buffer_for_proc( yp, 0,       RSL_SENDBUF ), yp_curs, MPI_CHAR, yp, yp, comm, &yp_send ) ;
+      ierr=MPI_Isend ( buffer_for_proc( yp, 0,       RSL_SENDBUF ), yp_curs, MPI_CHAR, yp, yp, comm, &reqs[nreq++] ) ;
     }
     if ( ym != MPI_PROC_NULL && *sendw_m > 0 ) {
-      ierr=MPI_Isend ( buffer_for_proc( ym, 0,       RSL_SENDBUF ), ym_curs, MPI_CHAR, ym, ym, comm, &ym_send ) ;
+      ierr=MPI_Isend ( buffer_for_proc( ym, 0,       RSL_SENDBUF ), ym_curs, MPI_CHAR, ym, ym, comm, &reqs[nreq++] ) ;
     }
-    if ( yp != MPI_PROC_NULL && *recvw_p > 0 ) {  MPI_Wait( &yp_recv, &stat ) ;  }
-    if ( ym != MPI_PROC_NULL && *recvw_m > 0 ) {  MPI_Wait( &ym_recv, &stat ) ;  }
-    if ( yp != MPI_PROC_NULL && *sendw_p > 0 ) {  MPI_Wait( &yp_send, &stat ) ;  }
-    if ( ym != MPI_PROC_NULL && *sendw_m > 0 ) {  MPI_Wait( &ym_send, &stat ) ;  }
+    if ( nreq > 0 ) {
+      MPI_Waitall( nreq, reqs, stats ) ;
+    }
   }
   yp_curs = 0 ; ym_curs = 0 ; xp_curs = 0 ; xm_curs = 0 ;
   yp_curs_recv = 0 ; ym_curs_recv = 0 ; 
@@ -1042,30 +1039,32 @@ RSL_LITE_EXCH_X ( int * Fcomm0, int *me0, int * np0 , int * np_x0 , int * np_y0 
   int me, np, np_x, np_y ;
   int yp, ym, xp, xm ;
 #ifndef STUBMPI
-  MPI_Status stat ;
+  MPI_Status stats[4] ;
+  MPI_Request reqs[4] ;
   MPI_Comm comm, *comm0, dummy_comm ;
+  int nreq ;
 
   comm0 = &dummy_comm ;
   *comm0 = MPI_Comm_f2c( *Fcomm0 ) ;
   comm = *comm0 ; me = *me0 ; np = *np0 ; np_x = *np_x0 ; np_y = *np_y0 ;
   if ( np_x > 1 ) {
+    nreq = 0 ;
     MPI_Cart_shift( *comm0, 1, 1, &xm, &xp ) ;
     if ( xp != MPI_PROC_NULL && *recvw_p > 0 ) {
-      MPI_Irecv ( buffer_for_proc( xp, xp_curs_recv, RSL_RECVBUF ), xp_curs_recv, MPI_CHAR, xp, me, comm, &xp_recv ) ;
+      MPI_Irecv ( buffer_for_proc( xp, xp_curs_recv, RSL_RECVBUF ), xp_curs_recv, MPI_CHAR, xp, me, comm, &reqs[nreq++] ) ;
     }
     if ( xm != MPI_PROC_NULL && *recvw_m > 0 ) {
-      MPI_Irecv ( buffer_for_proc( xm, xm_curs_recv, RSL_RECVBUF ), xm_curs_recv, MPI_CHAR, xm, me, comm, &xm_recv ) ;
+      MPI_Irecv ( buffer_for_proc( xm, xm_curs_recv, RSL_RECVBUF ), xm_curs_recv, MPI_CHAR, xm, me, comm, &reqs[nreq++] ) ;
     }
     if ( xp != MPI_PROC_NULL && *sendw_p > 0 ) {
-      MPI_Isend ( buffer_for_proc( xp, 0,       RSL_SENDBUF ), xp_curs, MPI_CHAR, xp, xp, comm, &xp_send ) ;
+      MPI_Isend ( buffer_for_proc( xp, 0,       RSL_SENDBUF ), xp_curs, MPI_CHAR, xp, xp, comm, &reqs[nreq++] ) ;
     }
     if ( xm != MPI_PROC_NULL && *sendw_m > 0 ) {
-      MPI_Isend ( buffer_for_proc( xm, 0,       RSL_SENDBUF ), xm_curs, MPI_CHAR, xm, xm, comm, &xm_send ) ;
+      MPI_Isend ( buffer_for_proc( xm, 0,       RSL_SENDBUF ), xm_curs, MPI_CHAR, xm, xm, comm, &reqs[nreq++] ) ;
     }
-    if ( xp != MPI_PROC_NULL && *recvw_p > 0 ) {  MPI_Wait( &xp_recv, &stat ) ;  }
-    if ( xm != MPI_PROC_NULL && *recvw_m > 0 ) {  MPI_Wait( &xm_recv, &stat ) ;  }
-    if ( xp != MPI_PROC_NULL && *sendw_p > 0 ) {  MPI_Wait( &xp_send, &stat ) ;  }
-    if ( xm != MPI_PROC_NULL && *sendw_m > 0 ) {  MPI_Wait( &xm_send, &stat ) ;  }
+    if ( nreq > 0 ) {
+      MPI_Waitall( nreq, reqs, stats ) ;
+    }
   }
   yp_curs = 0 ; ym_curs = 0 ; xp_curs = 0 ; xm_curs = 0 ;
   yp_curs_recv = 0 ; ym_curs_recv = 0 ; 
