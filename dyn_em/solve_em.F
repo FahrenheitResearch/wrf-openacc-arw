@@ -145,6 +145,7 @@ SUBROUTINE solve_em ( grid , config_flags  &
 
    REAL                            :: t_new, time_duration_of_lbcs
    LOGICAL                         :: smallstep_use_device_phys_bc_tail
+   LOGICAL                         :: smallstep_use_device_init_phys_bc
    INTEGER                         :: smallstep_p_halo_pad
    
 ! begin WRF-CMAQ twoway coupled model block
@@ -1214,6 +1215,10 @@ BENCH_END(small_step_prep_tim)
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
      CALL wrf_gpu_smallstep_init_host_fence_begin( grid )
+     smallstep_use_device_init_phys_bc = smallstep_phys_bc_tail_supported( config_flags ) .AND. &
+                                         .NOT. ( config_flags%periodic_x .OR. config_flags%periodic_y )
+#else
+     smallstep_use_device_init_phys_bc = .FALSE.
 #endif
 
 #ifdef DM_PARALLEL
@@ -1252,6 +1257,12 @@ BENCH_END(small_step_prep_tim)
 !--------------------------------------------------------------
 #      include "HALO_EM_B.inc"
 #      include "PERIOD_BDY_EM_B.inc"
+#endif
+
+#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
+     IF ( smallstep_use_device_init_phys_bc ) THEN
+        CALL wrf_gpu_smallstep_init_host_fence_end( grid )
+     END IF
 #endif
 
 BENCH_START(set_phys_bc2_tim)
@@ -1412,7 +1423,9 @@ BENCH_START(set_phys_bc2_tim)
 BENCH_END(set_phys_bc2_tim)
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
-     CALL wrf_gpu_smallstep_init_host_fence_end( grid )
+     IF ( .NOT. smallstep_use_device_init_phys_bc ) THEN
+        CALL wrf_gpu_smallstep_init_host_fence_end( grid )
+     END IF
 #endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)

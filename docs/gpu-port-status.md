@@ -31,9 +31,9 @@ That is the current public baseline. Broader physics coverage exists only in par
 
 | Lane | Case | Result |
 |---|---|---|
-| Default NVHPC/OpenACC | `20260412T2055Z-tailcontract-default` | `exit 0`, `6 wrfout`, `115 s` |
-| Experimental host-fence NVHPC/OpenACC | `20260412T2055Z-tailcontract-hostfences` | `exit 0`, `6 wrfout`, `159 s` |
-| Nested MPI/OpenACC short smoke | `nested-smoke-2021-mpi-short-nonhydro-tail-contract` | `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing |
+| Default NVHPC/OpenACC | `20260413T012149Z-initbc-default` | `exit 0`, `6 wrfout`, `115 s` |
+| Experimental host-fence NVHPC/OpenACC | `20260413T012149Z-initbc-hostfences` | `exit 0`, `6 wrfout`, `160 s` |
+| Nested MPI/OpenACC short smoke | `nested-smoke-2021-mpi-short-init-bc-device` | `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing |
 | Nested MPI/OpenACC repeated 1-hour loop | `overnight-20260412` | six local repeated one-hour nested runs completed through `2021-12-30_18:00:00` |
 
 Derived single-domain checkpoint numbers for the current short control:
@@ -49,6 +49,7 @@ Derived single-domain checkpoint numbers for the current short control:
 - Boundary input/output host preparation is wired through [module_io_domain.F](../share/module_io_domain.F) and mediation hooks.
 - The nonhydro `p`-halo segment now has an explicit begin/end ownership seam in [solve_em.F](../dyn_em/solve_em.F) and [module_gpu_runtime.F](../frame/module_gpu_runtime.F) instead of the older overloaded return hook.
 - The nonhydro small-step tail is now driven through explicit coarse runtime helpers in [solve_em.F](../dyn_em/solve_em.F) and [module_gpu_runtime.F](../frame/module_gpu_runtime.F) rather than being pieced together inline from separate halo and finish fence calls.
+- The earlier init-side small-step host island is now narrower on the supported non-periodic experimental path: [solve_em.F](../dyn_em/solve_em.F) returns to device immediately after `HALO_EM_B` / `PERIOD_BDY_EM_B`, so the `set_phys_bc2_tim` small-step boundary block can run device-side before the acoustic loop starts.
 - `RSL_LITE` now reuses MPI-allocated host send/recv buffers in [buf_for_proc.c](../external/RSL_LITE/buf_for_proc.c), which gives the active MPI lane pinned host staging without changing the MPI ABI.
 - The active `RSL_LITE_EXCH_X/Y` path now uses `MPI_Waitall` in [c_code.c](../external/RSL_LITE/c_code.c) instead of a serial wait chain.
 - The periodic exchange path used by [PERIOD_BDY_EM_B3_inline.inc](../build-openacc-nvhpc-mpi/inc/PERIOD_BDY_EM_B3_inline.inc) now uses `MPI_Waitall` in [period.c](../external/RSL_LITE/period.c) instead of serialized waits.
@@ -60,6 +61,7 @@ Derived single-domain checkpoint numbers for the current short control:
 
 - The `WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_*` / host-fence lane is for ownership experiments, not production timing.
 - The newest `advect_scalar_pd` ownership cuts and the retained `advance_w` scratch hoist are kept because they are architecturally correct, not because every intermediate experiment was a speed win.
+- The retained init-side `set_phys_bc2_tim` device cut is the same kind of checkpoint: it survived the real nested MPI witness and the remote single-domain lanes, but its current nested `d01` mean is essentially flat against the repinned baseline rather than clearly faster.
 - Nested exchange ownership below mediation is still not fully GPU-owned.
 - A direct `RSL_LITE_PACK` fast-path rewrite in `c_code.c` was tested on the real MPI witness and rejected; the retained transport line improves the host-buffer and exchange mechanics without replacing the pack kernels.
 
@@ -72,6 +74,7 @@ Derived single-domain checkpoint numbers for the current short control:
 ## Immediate Next Technical Targets
 
 - push the next coarse nonhydro `small_step_em` / `solve_em` ownership cut above the now-explicit tail contract, so more of the acoustic body is owned as one region instead of re-entering through per-kernel fence choreography
+- trim the retained init-side sync payload now that `set_phys_bc2_tim` is device-owned on the supported experimental path, so the halo bundle can be split from the smaller physical-BC bundle instead of returning every init field to device at once
 - keep deeper caller-side ownership work above the `advect_scalar_pd` seam where it feeds the active positive-definite moisture path
 - narrow nested host staging further and eventually push below mediation into `RSL_LITE`, now starting from the retained pinned-buffer + `Waitall` transport line in both `c_code.c` and `period.c`
 - widen validated physics coverage beyond the current active stack only after the core small-step ownership path is less hybrid

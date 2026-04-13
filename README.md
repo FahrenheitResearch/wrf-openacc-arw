@@ -12,13 +12,13 @@ Current public handoff docs:
 
 Validated public checkpoint at this session boundary:
 
-- single-domain NVHPC/OpenACC short control: `113-114 s`, `exit 0`, `6 wrfout`
-- single-domain experimental host-fence lane: `159 s`, `exit 0`, `6 wrfout`
-- nested MPI/OpenACC short smoke: passes invariant checks through `2021-12-30_17:05:00`
+- single-domain NVHPC/OpenACC short control: `115 s`, `exit 0`, `6 wrfout`
+- single-domain experimental host-fence lane: `159-160 s`, `exit 0`, `6 wrfout`
+- nested MPI/OpenACC short smoke: `nested-smoke-2021-mpi-short-init-bc-device`, passes invariant checks through `2021-12-30_17:05:00`
 
 Current blocker:
 
-- the main unfinished ownership cut is the nonhydro `small_step_em` / `solve_em` control path around the post-`sumflux` boundary-update, second-`calc_p_rho`, and `p`-halo segment
+- the main unfinished ownership cut is still the nonhydro `small_step_em` / `solve_em` control path above the retained init and tail contracts, especially the post-`sumflux` boundary-update, second-`calc_p_rho`, and `p`-halo segment
 
 Validation run directories and forcing/output artifacts are intentionally not committed to this public checkpoint.
 
