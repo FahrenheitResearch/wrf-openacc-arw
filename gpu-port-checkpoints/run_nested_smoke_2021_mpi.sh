@@ -4,10 +4,11 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  run_nested_smoke_2021_mpi.sh [run|package|check] [case_dir] [source_case_dir] [build_dir]
+  run_nested_smoke_2021_mpi.sh [run|bench|package|check] [case_dir] [source_case_dir] [build_dir]
 
 Modes:
   run      Package, clean stale outputs, run real, run wrf, then validate.
+  bench    Package, clean stale outputs, run real, run wrf, then require BENCH/timing only.
   package  Refresh the packaged run directory only.
   check    Validate an existing packaged/run directory only.
 
@@ -23,6 +24,7 @@ Environment:
   WRF_CUDA_VISIBLE_DEVICES CUDA_VISIBLE_DEVICES for wrf (default: 0)
   OMP_NUM_THREADS          OpenMP thread count for real/wrf (default: 1)
   WRF_WRF_RUN_MINUTES      override wrf runtime minutes for smoke reruns
+  WRF_WRF_RUN_SECONDS      override wrf runtime seconds for BENCH reruns
   WRF_HISTORY_INTERVAL_MINUTES override wrf history interval minutes
 EOF
 }
@@ -50,6 +52,7 @@ repo_root=$(cd "$script_dir/.." && pwd)
 package_script="$script_dir/package_nested_smoke_2021.sh"
 forcing_check_script="$repo_root/tools/validate_wrf_forcing_horizon.py"
 invariant_check_script="$repo_root/tools/validate_wrf_run_invariants.py"
+bench_summary_script="$repo_root/tools/summarize_wrf_bench.py"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
@@ -58,7 +61,7 @@ fi
 
 mode=${1:-run}
 case "$mode" in
-  run|package|check)
+  run|bench|package|check)
     shift || true
     ;;
   *)
@@ -77,15 +80,21 @@ mpi_np=${WRF_MPI_NP:-2}
 omp_threads=${OMP_NUM_THREADS:-1}
 cuda_visible_devices=${WRF_CUDA_VISIBLE_DEVICES:-${CUDA_VISIBLE_DEVICES:-0}}
 wrf_run_minutes=${WRF_WRF_RUN_MINUTES:-}
+wrf_run_seconds=${WRF_WRF_RUN_SECONDS:-}
 history_interval_minutes=${WRF_HISTORY_INTERVAL_MINUTES:-}
+
+if [[ -n "$wrf_run_minutes" && -n "$wrf_run_seconds" ]]; then
+  fail "set only one of WRF_WRF_RUN_MINUTES or WRF_WRF_RUN_SECONDS"
+fi
 
 real_log="$case_dir/real.log"
 wrf_log="$case_dir/wrf.log"
 
 package_case() {
   "$package_script" "$case_dir" "$source_case" "$build_dir"
-  if [[ -n "$wrf_run_minutes" || -n "$history_interval_minutes" ]]; then
+  if [[ -n "$wrf_run_minutes" || -n "$wrf_run_seconds" || -n "$history_interval_minutes" ]]; then
     WRF_WRF_RUN_MINUTES="$wrf_run_minutes" \
+    WRF_WRF_RUN_SECONDS="$wrf_run_seconds" \
     WRF_HISTORY_INTERVAL_MINUTES="$history_interval_minutes" \
     WRF_CASE_DIR="$case_dir" \
     python3 - <<'PY'
@@ -97,14 +106,17 @@ import re
 case = Path(os.environ["WRF_CASE_DIR"])
 start = datetime(2021, 12, 30, 17, 0, 0)
 run_minutes = os.environ.get("WRF_WRF_RUN_MINUTES", "").strip()
+run_seconds = os.environ.get("WRF_WRF_RUN_SECONDS", "").strip()
 hist_minutes = os.environ.get("WRF_HISTORY_INTERVAL_MINUTES", "").strip()
 
 def rewrite_runtime(txt: str, end: datetime) -> str:
     dt = end - start
     hours = int(dt.total_seconds() // 3600)
     minutes = int((dt.total_seconds() % 3600) // 60)
+    seconds = int(dt.total_seconds() % 60)
     txt = re.sub(r" run_hours\s*=\s*\d+,", f" run_hours               = {hours},", txt, count=1)
     txt = re.sub(r" run_minutes\s*=\s*\d+,", f" run_minutes             = {minutes},", txt, count=1)
+    txt = re.sub(r" run_seconds\s*=\s*\d+,", f" run_seconds             = {seconds},", txt, count=1)
     txt = re.sub(r" end_year\s*=\s*\d+,\s*\d+,",  f" end_year                = {end.year}, {end.year},", txt, count=1)
     txt = re.sub(r" end_month\s*=\s*\d+,\s*\d+,", f" end_month               = {end.month:02d},   {end.month:02d},", txt, count=1)
     txt = re.sub(r" end_day\s*=\s*\d+,\s*\d+,",   f" end_day                 = {end.day:02d},   {end.day:02d},", txt, count=1)
@@ -119,8 +131,13 @@ wrf_path = case / "namelist.wrf.input"
 real_txt = real_path.read_text()
 wrf_txt = wrf_path.read_text()
 
-if run_minutes:
+requested_end = None
+if run_seconds:
+    requested_end = start + timedelta(seconds=int(run_seconds))
+elif run_minutes:
     requested_end = start + timedelta(minutes=int(run_minutes))
+
+if requested_end is not None:
     interval_match = re.search(r" interval_seconds\s*=\s*(\d+),", real_txt)
     interval_seconds = int(interval_match.group(1)) if interval_match else 3600
     real_min_end = start + timedelta(seconds=interval_seconds)
@@ -201,8 +218,37 @@ check_case() {
   rg -q 'Timing for main: .* domain +2' "$case_dir"/rsl.out.* || \
     fail "missing domain 2 timing in rsl.out.*"
   python3 "$invariant_check_script" "$case_dir/namelist.wrf.input" "$case_dir"
+  if rg -q 'A=' "$case_dir"/rsl.out.* "$case_dir"/rsl.error.* 2>/dev/null; then
+    python3 "$bench_summary_script" "$case_dir"
+  fi
 
   printf 'nested smoke mpi OK\n'
+  printf '  case_dir: %s\n' "$case_dir"
+  printf '  real_log: %s\n' "$real_log"
+  printf '  wrf_log:  %s\n' "$wrf_log"
+}
+
+check_bench_case() {
+  require_file "$case_dir/real"
+  require_file "$case_dir/wrf"
+  require_file "$case_dir/namelist.real.input"
+  require_file "$case_dir/namelist.wrf.input"
+  require_file "$case_dir/wrfinput_d01"
+  require_file "$case_dir/wrfbdy_d01"
+  require_file "$case_dir/rsl.out.0000"
+  require_file "$case_dir/rsl.out.0001"
+
+  check_logs_for_fatal
+
+  rg -q 'Timing for main: .* domain +1' "$case_dir"/rsl.out.* || \
+    fail "missing domain 1 timing in rsl.out.*"
+  rg -q 'Timing for main: .* domain +2' "$case_dir"/rsl.out.* || \
+    fail "missing domain 2 timing in rsl.out.*"
+  rg -q 'A=' "$case_dir"/rsl.out.* "$case_dir"/rsl.error.* || \
+    fail "missing BENCH timing blocks in rsl logs"
+  python3 "$bench_summary_script" "$case_dir"
+
+  printf 'nested smoke mpi BENCH OK\n'
   printf '  case_dir: %s\n' "$case_dir"
   printf '  real_log: %s\n' "$real_log"
   printf '  wrf_log:  %s\n' "$wrf_log"
@@ -214,6 +260,13 @@ case "$mode" in
     ;;
   check)
     check_case
+    ;;
+  bench)
+    package_case
+    clean_case
+    run_real
+    run_wrf
+    check_bench_case
     ;;
   run)
     package_case

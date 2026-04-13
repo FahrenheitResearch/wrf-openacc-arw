@@ -119,6 +119,15 @@ MODULE module_advect_em
   USE module_model_constants
   USE module_wrf_error
 
+#ifdef BENCH
+  INTEGER, EXTERNAL :: rsl_internal_microclock
+  INTEGER, SAVE :: advect_scalar_pd_zero_accum    = 0
+  INTEGER, SAVE :: advect_scalar_pd_flux_accum    = 0
+  INTEGER, SAVE :: advect_scalar_pd_limiter_accum = 0
+  PRIVATE :: rsl_internal_microclock, advect_scalar_pd_zero_accum,         &
+             advect_scalar_pd_flux_accum, advect_scalar_pd_limiter_accum
+#endif
+
 #if defined(WRF_OPENACC_USE_ACCEL_LIB)
 ! `module_advect_em` needs a surrounding data region before loop-level OpenACC
 ! is worthwhile; otherwise NVHPC falls back to implicit copy traffic on every
@@ -133,6 +142,32 @@ MODULE module_advect_em
 #endif
 
 CONTAINS
+
+SUBROUTINE advect_scalar_pd_bench_reset()
+
+#ifdef BENCH
+  advect_scalar_pd_zero_accum    = 0
+  advect_scalar_pd_flux_accum    = 0
+  advect_scalar_pd_limiter_accum = 0
+#endif
+
+END SUBROUTINE advect_scalar_pd_bench_reset
+
+SUBROUTINE advect_scalar_pd_bench_snapshot( zero_tim, flux_tim, limiter_tim )
+
+  INTEGER, INTENT(OUT) :: zero_tim, flux_tim, limiter_tim
+
+#ifdef BENCH
+  zero_tim    = advect_scalar_pd_zero_accum
+  flux_tim    = advect_scalar_pd_flux_accum
+  limiter_tim = advect_scalar_pd_limiter_accum
+#else
+  zero_tim    = 0
+  flux_tim    = 0
+  limiter_tim = 0
+#endif
+
+END SUBROUTINE advect_scalar_pd_bench_snapshot
 
 !-------------------------------------------------------------------------------
 
@@ -7742,6 +7777,10 @@ CONTAINS
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
    SUBROUTINE advect_scalar_pd_h5_v3_tail_device()
 
+#ifdef BENCH
+      INTEGER :: bench_t0_local, bench_dt_local
+#endif
+
 !$acc data present(field(ims:ime,kms:kme,jms:jme),                          &
 !$acc              field_old(ims:ime,kms:kme,jms:jme),                      &
 !$acc              ru(ims:ime,kms:kme,jms:jme),                             &
@@ -7762,6 +7801,10 @@ CONTAINS
 !$acc             fqzl(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
 !$acc             scale_out(its-2:ite+2,kts:kte,jts-2:jte+2))
 
+#ifdef BENCH
+      bench_t0_local = rsl_internal_microclock()
+#endif
+
 !$acc parallel loop collapse(3)
       DO j = jts-1, jte+2
       DO k = kts, kte
@@ -7775,6 +7818,13 @@ CONTAINS
       ENDDO
       ENDDO
       ENDDO
+
+#ifdef BENCH
+      bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+      advect_scalar_pd_zero_accum = advect_scalar_pd_zero_accum + bench_dt_local
+      bench_t0_local = rsl_internal_microclock()
+#endif
 
       i_start = its-1
       i_end   = MIN(ite,ide-1)+1
@@ -7813,7 +7863,7 @@ CONTAINS
       ENDDO
 
 !$acc parallel loop collapse(3)
-      DO j = MAX(j_start,jds+1), MIN(j_end+1,jds+1)
+      DO j = MAX(j_start,jds+1), MIN(j_end+1,jds+2)
       DO k = kts, ktf
       DO i = i_start, i_end
         dy = 2./(msftx(i,j)+msftx(i,j-1))/rdy
@@ -7821,14 +7871,18 @@ CONTAINS
         vel = rv(i,k,j)
         cr = vel*dt/dy/mu
         fqyl(i,k,j) = mu*(dy/dt)*flux_upwind(field_old(i,k,j-1), field_old(i,k,j), cr)
-        fqy(i,k,j) = 0.5*rv(i,k,j)*(field(i,k,j)+field(i,k,j-1))
+        IF ( j == jds+1 ) THEN
+          fqy(i,k,j) = 0.5*rv(i,k,j)*(field(i,k,j)+field(i,k,j-1))
+        ELSE
+          fqy(i,k,j) = vel*flux3(field(i,k,j-2), field(i,k,j-1), field(i,k,j), field(i,k,j+1), vel)
+        END IF
         fqy(i,k,j) = fqy(i,k,j) - fqyl(i,k,j)
       ENDDO
       ENDDO
       ENDDO
 
 !$acc parallel loop collapse(3)
-      DO j = MAX(j_start,jds+2), MIN(j_end+1,jds+2)
+      DO j = MAX(j_start,jde-2), MIN(j_end+1,jde-1)
       DO k = kts, ktf
       DO i = i_start, i_end
         dy = 2./(msftx(i,j)+msftx(i,j-1))/rdy
@@ -7836,37 +7890,11 @@ CONTAINS
         vel = rv(i,k,j)
         cr = vel*dt/dy/mu
         fqyl(i,k,j) = mu*(dy/dt)*flux_upwind(field_old(i,k,j-1), field_old(i,k,j), cr)
-        fqy(i,k,j) = vel*flux3(field(i,k,j-2), field(i,k,j-1), field(i,k,j), field(i,k,j+1), vel)
-        fqy(i,k,j) = fqy(i,k,j) - fqyl(i,k,j)
-      ENDDO
-      ENDDO
-      ENDDO
-
-!$acc parallel loop collapse(3)
-      DO j = MAX(j_start,jde-2), MIN(j_end+1,jde-2)
-      DO k = kts, ktf
-      DO i = i_start, i_end
-        dy = 2./(msftx(i,j)+msftx(i,j-1))/rdy
-        mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i,j-1)+c2(k)))
-        vel = rv(i,k,j)
-        cr = vel*dt/dy/mu
-        fqyl(i,k,j) = mu*(dy/dt)*flux_upwind(field_old(i,k,j-1), field_old(i,k,j), cr)
-        fqy(i,k,j) = vel*flux3(field(i,k,j-2), field(i,k,j-1), field(i,k,j), field(i,k,j+1), vel)
-        fqy(i,k,j) = fqy(i,k,j) - fqyl(i,k,j)
-      ENDDO
-      ENDDO
-      ENDDO
-
-!$acc parallel loop collapse(3)
-      DO j = MAX(j_start,jde-1), MIN(j_end+1,jde-1)
-      DO k = kts, ktf
-      DO i = i_start, i_end
-        dy = 2./(msftx(i,j)+msftx(i,j-1))/rdy
-        mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i,j-1)+c2(k)))
-        vel = rv(i,k,j)
-        cr = vel*dt/dy/mu
-        fqyl(i,k,j) = mu*(dy/dt)*flux_upwind(field_old(i,k,j-1), field_old(i,k,j), cr)
-        fqy(i,k,j) = 0.5*rv(i,k,j)*(field(i,k,j)+field(i,k,j-1))
+        IF ( j == jde-1 ) THEN
+          fqy(i,k,j) = 0.5*rv(i,k,j)*(field(i,k,j)+field(i,k,j-1))
+        ELSE
+          fqy(i,k,j) = vel*flux3(field(i,k,j-2), field(i,k,j-1), field(i,k,j), field(i,k,j+1), vel)
+        END IF
         fqy(i,k,j) = fqy(i,k,j) - fqyl(i,k,j)
       ENDDO
       ENDDO
@@ -7911,13 +7939,17 @@ CONTAINS
 !$acc parallel loop collapse(3)
       DO j = j_start, j_end
       DO k = kts, ktf
-      DO i = MAX(i_start,ids+1), MIN(i_start_f-1,ids+1)
+      DO i = MAX(i_start,ids+1), MIN(i_start_f-1,ids+2)
         dx = 2./(msfty(i,j)+msfty(i-1,j))/rdx
         mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i-1,j)+c2(k)))
-        vel = ru(i,k,j)/mu
-        cr = vel*dt/dx
+        vel = ru(i,k,j)
+        cr = vel*dt/dx/mu
         fqxl(i,k,j) = mu*(dx/dt)*flux_upwind(field_old(i-1,k,j), field_old(i,k,j), cr)
-        fqx(i,k,j) = 0.5*ru(i,k,j)*(field(i,k,j)+field(i-1,k,j))
+        IF ( i == ids+1 ) THEN
+          fqx(i,k,j) = 0.5*ru(i,k,j)*(field(i,k,j)+field(i-1,k,j))
+        ELSE
+          fqx(i,k,j) = vel*flux3(field(i-2,k,j), field(i-1,k,j), field(i,k,j), field(i+1,k,j), vel)
+        END IF
         fqx(i,k,j) = fqx(i,k,j) - fqxl(i,k,j)
       ENDDO
       ENDDO
@@ -7926,13 +7958,17 @@ CONTAINS
 !$acc parallel loop collapse(3)
       DO j = j_start, j_end
       DO k = kts, ktf
-      DO i = MAX(i_start,ids+2), MIN(i_start_f-1,ids+2)
+      DO i = MAX(i_end_f+1,ide-2), MIN(i_end+1,ide-1)
         dx = 2./(msfty(i,j)+msfty(i-1,j))/rdx
         mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i-1,j)+c2(k)))
         vel = ru(i,k,j)
         cr = vel*dt/dx/mu
         fqxl(i,k,j) = mu*(dx/dt)*flux_upwind(field_old(i-1,k,j), field_old(i,k,j), cr)
-        fqx(i,k,j) = vel*flux3(field(i-2,k,j), field(i-1,k,j), field(i,k,j), field(i+1,k,j), vel)
+        IF ( i == ide-1 ) THEN
+          fqx(i,k,j) = 0.5*ru(i,k,j)*(field(i,k,j)+field(i-1,k,j))
+        ELSE
+          fqx(i,k,j) = vel*flux3(field(i-2,k,j), field(i-1,k,j), field(i,k,j), field(i+1,k,j), vel)
+        END IF
         fqx(i,k,j) = fqx(i,k,j) - fqxl(i,k,j)
       ENDDO
       ENDDO
@@ -7940,79 +7976,46 @@ CONTAINS
 
 !$acc parallel loop collapse(3)
       DO j = j_start, j_end
-      DO k = kts, ktf
-      DO i = MAX(i_end_f+1,ide-2), MIN(i_end+1,ide-2)
-        dx = 2./(msfty(i,j)+msfty(i-1,j))/rdx
-        mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i-1,j)+c2(k)))
-        vel = ru(i,k,j)
-        cr = vel*dt/dx/mu
-        fqxl(i,k,j) = mu*(dx/dt)*flux_upwind(field_old(i-1,k,j), field_old(i,k,j), cr)
-        fqx(i,k,j) = vel*flux3(field(i-2,k,j), field(i-1,k,j), field(i,k,j), field(i+1,k,j), vel)
-        fqx(i,k,j) = fqx(i,k,j) - fqxl(i,k,j)
-      ENDDO
-      ENDDO
-      ENDDO
-
-!$acc parallel loop collapse(3)
-      DO j = j_start, j_end
-      DO k = kts, ktf
-      DO i = MAX(i_end_f+1,ide-1), MIN(i_end+1,ide-1)
-        dx = 2./(msfty(i,j)+msfty(i-1,j))/rdx
-        mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i-1,j)+c2(k)))
-        vel = ru(i,k,j)
-        cr = vel*dt/dx/mu
-        fqxl(i,k,j) = mu*(dx/dt)*flux_upwind(field_old(i-1,k,j), field_old(i,k,j), cr)
-        fqx(i,k,j) = 0.5*ru(i,k,j)*(field(i,k,j)+field(i-1,k,j))
-        fqx(i,k,j) = fqx(i,k,j) - fqxl(i,k,j)
-      ENDDO
-      ENDDO
-      ENDDO
-
-!$acc parallel loop collapse(3)
-      DO j = j_start, j_end
-      DO k = kts+2, ktf-1
+      DO k = kts+1, ktf
       DO i = i_start, i_end
         dz = 2./(rdzw(k)+rdzw(k-1))
         mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i,j)+c2(k)))
         vel = rom(i,k,j)
         cr = vel*dt/dz/mu
         fqzl(i,k,j) = mu*(dz/dt)*flux_upwind(field_old(i,k-1,j), field_old(i,k,j), cr)
-        fqz(i,k,j) = vel*flux3(field(i,k-2,j), field(i,k-1,j), field(i,k,j), field(i,k+1,j), -vel)
+        IF ( k == kts+1 .OR. k == ktf ) THEN
+          fqz(i,k,j) = rom(i,k,j)*(fzm(k)*field(i,k,j)+fzp(k)*field(i,k-1,j))
+        ELSE
+          fqz(i,k,j) = vel*flux3(field(i,k-2,j), field(i,k-1,j), field(i,k,j), field(i,k+1,j), -vel)
+        END IF
         fqz(i,k,j) = fqz(i,k,j) - fqzl(i,k,j)
       ENDDO
       ENDDO
       ENDDO
 
-!$acc parallel loop collapse(2)
-      DO j = j_start, j_end
-      DO i = i_start, i_end
-        k = kts+1
-        dz = 2./(rdzw(k)+rdzw(k-1))
-        mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i,j)+c2(k)))
-        vel = rom(i,k,j)
-        cr = vel*dt/dz/mu
-        fqzl(i,k,j) = mu*(dz/dt)*flux_upwind(field_old(i,k-1,j), field_old(i,k,j), cr)
-        fqz(i,k,j) = rom(i,k,j)*(fzm(k)*field(i,k,j)+fzp(k)*field(i,k-1,j))
-        fqz(i,k,j) = fqz(i,k,j) - fqzl(i,k,j)
-
-        k = ktf
-        dz = 2./(rdzw(k)+rdzw(k-1))
-        mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i,j)+c2(k)))
-        vel = rom(i,k,j)
-        cr = vel*dt/dz/mu
-        fqzl(i,k,j) = mu*(dz/dt)*flux_upwind(field_old(i,k-1,j), field_old(i,k,j), cr)
-        fqz(i,k,j) = rom(i,k,j)*(fzm(k)*field(i,k,j)+fzp(k)*field(i,k-1,j))
-        fqz(i,k,j) = fqz(i,k,j) - fqzl(i,k,j)
-      ENDDO
-      ENDDO
-
+#ifdef BENCH
+      bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+      advect_scalar_pd_flux_accum = advect_scalar_pd_flux_accum + bench_dt_local
+      bench_t0_local = rsl_internal_microclock()
+#endif
       CALL advect_scalar_pd_limiter_tail_present_device()
+
+#ifdef BENCH
+      bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+      advect_scalar_pd_limiter_accum = advect_scalar_pd_limiter_accum + bench_dt_local
+#endif
 
 !$acc end data
 
    END SUBROUTINE advect_scalar_pd_h5_v3_tail_device
 
    SUBROUTINE advect_scalar_pd_v3_tail_device()
+
+#ifdef BENCH
+      INTEGER :: bench_t0_local, bench_dt_local
+#endif
 
 !$acc data present(field(ims:ime,kms:kme,jms:jme),                          &
 !$acc              field_old(ims:ime,kms:kme,jms:jme),                      &
@@ -8034,6 +8037,10 @@ CONTAINS
 !$acc             fqzl(its-1:ite+2,kts:kte,jts-1:jte+2),                    &
 !$acc             scale_out(its-2:ite+2,kts:kte,jts-2:jte+2))
 
+#ifdef BENCH
+      bench_t0_local = rsl_internal_microclock()
+#endif
+
 !$acc parallel loop collapse(3)
       DO j = jts-1, jte+2
       DO k = kts, kte
@@ -8044,45 +8051,45 @@ CONTAINS
       ENDDO
       ENDDO
 
+#ifdef BENCH
+      bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+      advect_scalar_pd_zero_accum = advect_scalar_pd_zero_accum + bench_dt_local
+      bench_t0_local = rsl_internal_microclock()
+#endif
+
 !$acc parallel loop collapse(3)
       DO j = j_start, j_end
-      DO k = kts+2, ktf-1
+      DO k = kts+1, ktf
       DO i = i_start, i_end
         dz = 2./(rdzw(k)+rdzw(k-1))
         mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i,j)+c2(k)))
         vel = rom(i,k,j)
         cr = vel*dt/dz/mu
         fqzl(i,k,j) = mu*(dz/dt)*flux_upwind(field_old(i,k-1,j), field_old(i,k,j), cr)
-        fqz(i,k,j) = vel*flux3(field(i,k-2,j), field(i,k-1,j), field(i,k,j), field(i,k+1,j), -vel)
+        IF ( k == kts+1 .OR. k == ktf ) THEN
+          fqz(i,k,j) = rom(i,k,j)*(fzm(k)*field(i,k,j)+fzp(k)*field(i,k-1,j))
+        ELSE
+          fqz(i,k,j) = vel*flux3(field(i,k-2,j), field(i,k-1,j), field(i,k,j), field(i,k+1,j), -vel)
+        END IF
         fqz(i,k,j) = fqz(i,k,j) - fqzl(i,k,j)
       ENDDO
       ENDDO
       ENDDO
 
-!$acc parallel loop collapse(2)
-      DO j = j_start, j_end
-      DO i = i_start, i_end
-        k = kts+1
-        dz = 2./(rdzw(k)+rdzw(k-1))
-        mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i,j)+c2(k)))
-        vel = rom(i,k,j)
-        cr = vel*dt/dz/mu
-        fqzl(i,k,j) = mu*(dz/dt)*flux_upwind(field_old(i,k-1,j), field_old(i,k,j), cr)
-        fqz(i,k,j) = rom(i,k,j)*(fzm(k)*field(i,k,j)+fzp(k)*field(i,k-1,j))
-        fqz(i,k,j) = fqz(i,k,j) - fqzl(i,k,j)
-
-        k = ktf
-        dz = 2./(rdzw(k)+rdzw(k-1))
-        mu = 0.5*((c1(k)*mut(i,j)+c2(k))+(c1(k)*mut(i,j)+c2(k)))
-        vel = rom(i,k,j)
-        cr = vel*dt/dz/mu
-        fqzl(i,k,j) = mu*(dz/dt)*flux_upwind(field_old(i,k-1,j), field_old(i,k,j), cr)
-        fqz(i,k,j) = rom(i,k,j)*(fzm(k)*field(i,k,j)+fzp(k)*field(i,k-1,j))
-        fqz(i,k,j) = fqz(i,k,j) - fqzl(i,k,j)
-      ENDDO
-      ENDDO
-
+#ifdef BENCH
+      bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+      advect_scalar_pd_flux_accum = advect_scalar_pd_flux_accum + bench_dt_local
+      bench_t0_local = rsl_internal_microclock()
+#endif
       CALL advect_scalar_pd_limiter_tail_present_device()
+
+#ifdef BENCH
+      bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+      advect_scalar_pd_limiter_accum = advect_scalar_pd_limiter_accum + bench_dt_local
+#endif
 
 !$acc end data
 
@@ -8270,7 +8277,6 @@ CONTAINS
      i_end   = MIN(ite,ide-1)
      j_start = jts
      j_end   = MIN(jte,jde-1)
-
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
 !$acc parallel loop collapse(3)
 #endif

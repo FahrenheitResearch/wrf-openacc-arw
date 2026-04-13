@@ -30,7 +30,51 @@ MODULE module_em
 
    USE module_configure, ONLY: grid_config_rec_type, model_config_rec, model_to_grid_config_rec
 
+#ifdef BENCH
+   INTEGER, EXTERNAL :: rsl_internal_microclock
+   INTEGER, SAVE :: rk_scalar_setup_accum   = 0
+   INTEGER, SAVE :: rk_scalar_zero_accum    = 0
+   INTEGER, SAVE :: rk_scalar_pd_adv_accum  = 0
+   INTEGER, SAVE :: rk_scalar_ieva_accum    = 0
+   INTEGER, SAVE :: rk_scalar_diffuse_accum = 0
+   PRIVATE :: rsl_internal_microclock, rk_scalar_setup_accum,              &
+              rk_scalar_zero_accum, rk_scalar_pd_adv_accum,                &
+              rk_scalar_ieva_accum, rk_scalar_diffuse_accum
+#endif
+
 CONTAINS
+
+SUBROUTINE rk_scalar_bench_reset()
+
+#ifdef BENCH
+   rk_scalar_setup_accum   = 0
+   rk_scalar_zero_accum    = 0
+   rk_scalar_pd_adv_accum  = 0
+   rk_scalar_ieva_accum    = 0
+   rk_scalar_diffuse_accum = 0
+#endif
+
+END SUBROUTINE rk_scalar_bench_reset
+
+SUBROUTINE rk_scalar_bench_snapshot( setup_tim, zero_tim, pd_adv_tim, ieva_tim, diffuse_tim )
+
+   INTEGER, INTENT(OUT) :: setup_tim, zero_tim, pd_adv_tim, ieva_tim, diffuse_tim
+
+#ifdef BENCH
+   setup_tim   = rk_scalar_setup_accum
+   zero_tim    = rk_scalar_zero_accum
+   pd_adv_tim  = rk_scalar_pd_adv_accum
+   ieva_tim    = rk_scalar_ieva_accum
+   diffuse_tim = rk_scalar_diffuse_accum
+#else
+   setup_tim   = 0
+   zero_tim    = 0
+   pd_adv_tim  = 0
+   ieva_tim    = 0
+   diffuse_tim = 0
+#endif
+
+END SUBROUTINE rk_scalar_bench_snapshot
 
 !------------------------------------------------------------------------
 
@@ -1199,6 +1243,9 @@ SUBROUTINE rk_scalar_tend ( scs, sce, config_flags,          &
    REAL, DIMENSION( ims:ime, kms:kme, jms:jme ) :: wwE, wwI  
    REAL, DIMENSION( ims:ime, jms:jme )          :: mut_old  
    LOGICAL                                      :: ieva
+#ifdef BENCH
+   INTEGER                                      :: bench_t0, bench_dt
+#endif
 
 !<DESCRIPTION>
 !
@@ -1219,6 +1266,9 @@ SUBROUTINE rk_scalar_tend ( scs, sce, config_flags,          &
 
 ! Code for splitting vertical velocity into ex/im parts
 
+#ifdef BENCH
+   bench_t0 = rsl_internal_microclock()
+#endif
    CALL WW_SPLIT(wwE, wwI,                         &
                  u_old,   v_old,    ww,            &
                  mut, rdnw, msfty,                 &
@@ -1242,6 +1292,12 @@ SUBROUTINE rk_scalar_tend ( scs, sce, config_flags,          &
    ENDIF
    
    CALL nl_get_time_step ( 1, time_step )
+
+#ifdef BENCH
+   bench_dt = rsl_internal_microclock() - bench_t0
+!$OMP ATOMIC UPDATE
+   rk_scalar_setup_accum = rk_scalar_setup_accum + bench_dt
+#endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
 ! Keep the PD scalar caller state resident across the member loop so the
@@ -1285,7 +1341,13 @@ CONTAINS
    SUBROUTINE rk_scalar_tend_member( im )
 
       INTEGER, INTENT(IN) :: im
+#ifdef BENCH
+      INTEGER :: bench_t0_local, bench_dt_local
+#endif
 
+#ifdef BENCH
+      bench_t0_local = rsl_internal_microclock()
+#endif
       CALL zero_tend ( advect_tend(ims,kms,jms),     &
                        ids, ide, jds, jde, kds, kde, &
                        ims, ime, jms, jme, kms, kme, &
@@ -1302,6 +1364,11 @@ CONTAINS
                           ims, ime, jms, jme, kms, kme, &
                           its, ite, jts, jte, kts, kte )
       END IF
+#ifdef BENCH
+      bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+      rk_scalar_zero_accum = rk_scalar_zero_accum + bench_dt_local
+#endif
 
       IF( (rk_step == rk_order) .and. (adv_opt == POSITIVEDEF) ) THEN
 
@@ -1324,6 +1391,9 @@ CONTAINS
 !$acc      copy(advect_tend(ims:ime,kms:kme,jms:jme),                      &
 !$acc           h_tendency(ims:ime,kms:kme,jms:jme),                       &
 !$acc           z_tendency(ims:ime,kms:kme,jms:jme))
+#ifdef BENCH
+        bench_t0_local = rsl_internal_microclock()
+#endif
         CALL advect_scalar_pd       ( scalar(ims,kms,jms,im),             &
                                       scalar_old(ims,kms,jms,im),         &
                                       advect_tend(ims,kms,jms),           &
@@ -1338,6 +1408,11 @@ CONTAINS
                                       ids, ide, jds, jde, kds, kde,       &
                                       ims, ime, jms, jme, kms, kme,       &
                                       its, ite, jts, jte, kts, kte     )
+#ifdef BENCH
+        bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+        rk_scalar_pd_adv_accum = rk_scalar_pd_adv_accum + bench_dt_local
+#endif
 !$acc end data
 #endif
 
@@ -1407,6 +1482,9 @@ CONTAINS
 
       IF( ieva ) THEN
 
+#ifdef BENCH
+         bench_t0_local = rsl_internal_microclock()
+#endif
          CALL advect_s_implicit ( scalar(ims,kms,jms,im),         &
                                   scalar_old(ims,kms,jms,im),     &
                                   advect_tend(ims,kms,jms),       &
@@ -1422,6 +1500,11 @@ CONTAINS
                                   ids, ide, jds, jde, kds, kde,   &
                                   ims, ime, jms, jme, kms, kme,   &
                                   its, ite, jts, jte, kts, kte )
+#ifdef BENCH
+         bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+         rk_scalar_ieva_accum = rk_scalar_ieva_accum + bench_dt_local
+#endif
 
       ENDIF
 
@@ -1437,6 +1520,9 @@ CONTAINS
                         its, ite, jts, jte, kts, kte      )
       ENDIF
 
+#ifdef BENCH
+      IF ( rk_step == 1 ) bench_t0_local = rsl_internal_microclock()
+#endif
       rk_step_1: IF( rk_step == 1 ) THEN
 
          diff_opt1 : IF (config_flags%diff_opt .eq. 1) THEN
@@ -1498,6 +1584,13 @@ CONTAINS
          ENDIF
 
       ENDIF rk_step_1
+#ifdef BENCH
+      IF ( rk_step == 1 ) THEN
+         bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+         rk_scalar_diffuse_accum = rk_scalar_diffuse_accum + bench_dt_local
+      END IF
+#endif
 
    END SUBROUTINE rk_scalar_tend_member
 

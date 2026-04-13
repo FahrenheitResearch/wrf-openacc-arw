@@ -53,6 +53,8 @@ SUBROUTINE solve_em ( grid , config_flags  &
 ! Model layer modules
    USE module_model_constants
    USE module_small_step_em
+   USE module_advect_em, ONLY : advect_scalar_pd_bench_reset,              &
+                                advect_scalar_pd_bench_snapshot
    USE module_em
    USE module_big_step_utilities_em
    USE module_bc
@@ -87,8 +89,6 @@ SUBROUTINE solve_em ( grid , config_flags  &
                                   wrf_gpu_smallstep_prep_host_fence_end,        &
                                   wrf_gpu_smallstep_init_host_fence_begin,      &
                                   wrf_gpu_smallstep_init_host_fence_end,        &
-                                  wrf_gpu_smallstep_init_phys_bc_host_fence_end,&
-                                  wrf_gpu_smallstep_init_body_host_fence_end,   &
                                   wrf_gpu_smallstep_early_host_fence_end,       &
                                   wrf_gpu_smallstep_nonhydro_tail_host_fence_begin, &
                                   wrf_gpu_smallstep_nonhydro_tail_host_fence_end,   &
@@ -147,7 +147,6 @@ SUBROUTINE solve_em ( grid , config_flags  &
 
    REAL                            :: t_new, time_duration_of_lbcs
    LOGICAL                         :: smallstep_use_device_phys_bc_tail
-   LOGICAL                         :: smallstep_use_device_init_phys_bc
    INTEGER                         :: smallstep_p_halo_pad
    
 ! begin WRF-CMAQ twoway coupled model block
@@ -295,6 +294,11 @@ SUBROUTINE solve_em ( grid , config_flags  &
 
 ! Initialize timers if compiled with -DBENCH
 #include "bench_solve_em_init.h"
+#ifdef BENCH
+   CALL rk_scalar_bench_reset()
+   CALL advect_scalar_pd_bench_reset()
+   CALL advance_w_bench_reset()
+#endif
 
 #if (WRF_CMAQ == 1)
    if (firstime) then
@@ -1216,15 +1220,7 @@ BENCH_END(small_step_prep_tim)
 #endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
-     smallstep_use_device_init_phys_bc = smallstep_phys_bc_tail_supported( config_flags ) .AND. &
-                                         .NOT. ( config_flags%periodic_x .OR. config_flags%periodic_y )
-     IF ( smallstep_use_device_init_phys_bc ) THEN
-        CALL wrf_gpu_smallstep_init_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, 1 )
-     ELSE
-        CALL wrf_gpu_smallstep_init_host_fence_begin( grid )
-     END IF
-#else
-     smallstep_use_device_init_phys_bc = .FALSE.
+     CALL wrf_gpu_smallstep_init_host_fence_begin( grid )
 #endif
 
 #ifdef DM_PARALLEL
@@ -1263,12 +1259,6 @@ BENCH_END(small_step_prep_tim)
 !--------------------------------------------------------------
 #      include "HALO_EM_B.inc"
 #      include "PERIOD_BDY_EM_B.inc"
-#endif
-
-#if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
-     IF ( smallstep_use_device_init_phys_bc ) THEN
-        CALL wrf_gpu_smallstep_init_phys_bc_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, 1 )
-     END IF
 #endif
 
 BENCH_START(set_phys_bc2_tim)
@@ -1429,11 +1419,7 @@ BENCH_START(set_phys_bc2_tim)
 BENCH_END(set_phys_bc2_tim)
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
-     IF ( smallstep_use_device_init_phys_bc ) THEN
-        CALL wrf_gpu_smallstep_init_body_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, 1 )
-     ELSE
-        CALL wrf_gpu_smallstep_init_host_fence_end( grid )
-     END IF
+     CALL wrf_gpu_smallstep_init_host_fence_end( grid )
 #endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
@@ -2695,7 +2681,7 @@ BENCH_END(small_step_finish_tim)
 
            IF (grid%adv_moist_cond .or. im==p_qv ) THEN
 
-             !$OMP PARALLEL DO   &
+	             !$OMP PARALLEL DO   &
              !$OMP PRIVATE ( ij, tenddec )
              moist_tile_loop_1: DO ij = 1 , grid%num_tiles
 
@@ -5475,6 +5461,16 @@ BENCH_END(bc_2d_tim)
    IF ( grid%id .EQ. 1 ) grid%just_read_boundary = Is_alarm_tstep(grid%domain_clock, grid%alarms(BOUNDARY_ALARM))
 
 ! Finish timers if compiled with -DBENCH.
+#ifdef BENCH
+   CALL rk_scalar_bench_snapshot( rk_scalar_setup_tim, rk_scalar_zero_tim,   &
+                                  rk_scalar_pd_adv_tim, rk_scalar_ieva_tim, &
+                                  rk_scalar_diffuse_tim )
+   CALL advect_scalar_pd_bench_snapshot( rk_scalar_pd_zero_flux_tim,         &
+                                         rk_scalar_pd_flux_tim,              &
+                                         rk_scalar_pd_limiter_tim )
+   CALL advance_w_bench_snapshot( advance_w_rhs_tim, advance_w_wsolve_tim,   &
+                                  advance_w_damp_tim, advance_w_ph_tim )
+#endif
 #include "bench_solve_em_end.h"
 
 #if (WRF_CMAQ == 1)

@@ -62,6 +62,10 @@ Derived single-domain checkpoint numbers for the current short control:
 
 - The `WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_*` / host-fence lane is for ownership experiments, not production timing.
 - The newest `advect_scalar_pd` ownership cuts and the retained `advance_w` scratch hoist are kept because they are architecturally correct, not because every intermediate experiment was a speed win.
+- The latest true nested `MPI + hostfences + BENCH` witness changed the diagnosis of the current bottleneck: on `d02`, `rk_scalar_tend_tim` is still about half of `solve_tim` (`14.05 s / 28.06 s` on `nested-smoke-2021-mpi-bench20-r06-advancewsplit`), while `advance_w_tim` is the next major bucket at about `9.94 s`.
+- That same BENCH split also says the first `advance_w` target is not its RHS builder: on the same retained witness, `advance_w_rhs_tim` is only about `0.15 s`, while the `wsolve`, damping, and `ph` pieces dominate the routine.
+- The `advance_w` BENCH sub-bucket instrumentation is now part of the public tree, and the latest local candidate fused the damping and `ph` tail in `advance_w`. That candidate improved the true nested witness on `d02` to a `27.11 s` mean with `advance_w_tim = 8.22 s`, but it also drifted to `d01 = 174.17 s` by `2021-12-30_17:00:24`, and rebuilt remote single-domain controls were manually stopped after remaining at one `wrfout` beyond `17 minutes`. That runtime change is therefore not retained in the active public path; the BENCH instrumentation and diagnosis are.
+- The retained vertical-fuse refinement in [module_advect_em.F](../dyn_em/module_advect_em.F) is the current example of the discipline we want: it improved the real nested BENCH witness on `d02` from `28.06 s` mean / `27.81 s` latest (`nested-smoke-2021-mpi-bench20-r06-advancewsplit`) to `27.74 s` mean / `27.60 s` latest (`nested-smoke-2021-mpi-bench20-r08-vertfuse`) and also improved the real short nested witness from `32.09/29.51/29.31 s` to `28.27/28.22/29.29 s` on the first three child steps.
 - The retained init-side `set_phys_bc2_tim` device cut plus slice-sync return is the same kind of checkpoint: it survived the real nested MPI witness and the remote single-domain lanes, and its current nested `d01` mean (`11.14 s`) is only modestly better than the repinned baseline (`11.16 s`), so it is still primarily an ownership cleanup rather than a breakthrough speedup.
 - Nested exchange ownership below mediation is still not fully GPU-owned.
 - A direct `RSL_LITE_PACK` fast-path rewrite in `c_code.c` was tested on the real MPI witness and rejected; the retained transport line improves the host-buffer and exchange mechanics without replacing the pack kernels.
@@ -75,8 +79,10 @@ Derived single-domain checkpoint numbers for the current short control:
 ## Immediate Next Technical Targets
 
 - push the next coarse nonhydro `small_step_em` / `solve_em` ownership cut above the now-explicit tail contract, so more of the acoustic body is owned as one region instead of re-entering through per-kernel fence choreography
+- keep reducing launch and staging overhead in the active positive-definite scalar path above and inside `advect_scalar_pd`, because the true nested BENCH witness still shows `rk_scalar_tend` / PD flux work as the single largest live bucket
 - attack the remaining host-only `RSL_LITE_PACK` / unpack boundary now that the retained transport line already has pinned host buffers plus `MPI_Waitall` in both active exchange paths
 - keep deeper caller-side ownership work above the `advect_scalar_pd` seam where it feeds the active positive-definite moisture path
+- only spend more time inside `advance_w` where the BENCH split says it matters, namely the `wsolve`, damping, and `ph` tail pieces rather than the RHS builder
 - narrow nested host staging further and eventually push below mediation into `RSL_LITE`, now starting from the retained pinned-buffer + `Waitall` transport line in both `c_code.c` and `period.c`
 - widen validated physics coverage beyond the current active stack only after the core small-step ownership path is less hybrid
 

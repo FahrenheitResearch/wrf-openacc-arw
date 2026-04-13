@@ -11,6 +11,14 @@ MODULE module_small_step_em
    USE module_configure
    USE module_model_constants
 
+#ifdef BENCH
+   INTEGER, EXTERNAL, PRIVATE :: rsl_internal_microclock
+   INTEGER, PRIVATE :: advance_w_rhs_accum = 0
+   INTEGER, PRIVATE :: advance_w_wsolve_accum = 0
+   INTEGER, PRIVATE :: advance_w_damp_accum = 0
+   INTEGER, PRIVATE :: advance_w_ph_accum = 0
+#endif
+
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
 ! solve_em now owns an explicit device data region for the acoustic prep-side
 ! scratch build. Keep the per-small-step body host-owned until its halo fences
@@ -121,6 +129,28 @@ MODULE module_small_step_em
 #endif
 
 CONTAINS
+
+#ifdef BENCH
+SUBROUTINE advance_w_bench_reset()
+
+  advance_w_rhs_accum = 0
+  advance_w_wsolve_accum = 0
+  advance_w_damp_accum = 0
+  advance_w_ph_accum = 0
+
+END SUBROUTINE advance_w_bench_reset
+
+SUBROUTINE advance_w_bench_snapshot( rhs_tim, wsolve_tim, damp_tim, ph_tim )
+
+  INTEGER, INTENT(OUT) :: rhs_tim, wsolve_tim, damp_tim, ph_tim
+
+  rhs_tim = advance_w_rhs_accum
+  wsolve_tim = advance_w_wsolve_accum
+  damp_tim = advance_w_damp_accum
+  ph_tim = advance_w_ph_accum
+
+END SUBROUTINE advance_w_bench_snapshot
+#endif
 
 SUBROUTINE small_step_prep( u_1, u_2, v_1, v_2, w_1, w_2, &
                             t_1, t_2, ph_1, ph_2,         &
@@ -1489,10 +1519,13 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
                                                   c3h, c4h, c3f, c4f
       REAL, DIMENSION( ims:ime ), INTENT(INOUT) :: msft_inv
       REAL, DIMENSION( ims:ime, kms:kme ), INTENT(INOUT) :: rhs, wdwn
-      INTEGER :: i,j,k, i_start, i_end, j_start, j_end, k_start, k_end
-      real :: htop,hbot,hdepth,hk
-      real    :: pi,dampmag,dampwt_local
-      REAL :: muthk, muthkm1
+  INTEGER :: i,j,k, i_start, i_end, j_start, j_end, k_start, k_end
+  real :: htop,hbot,hdepth,hk
+  real    :: pi,dampmag,dampwt_local
+  REAL :: muthk, muthkm1
+#ifdef BENCH
+  INTEGER :: bench_t0_local, bench_dt_local
+#endif
 !<DESCRIPTION>
 !
 !  advance_w advances the implicit w and geopotential equations.
@@ -1548,6 +1581,9 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
   !$acc&             msft_inv,rhs,wdwn)
 #else
   WRF_ACC_ADVANCE_W_LOCAL_DATA_OPEN
+#endif
+#ifdef BENCH
+    bench_t0_local = rsl_internal_microclock()
 #endif
     WRF_ACC_ADVANCE_W_LOCAL_LOOP
     DO i=i_start, i_end
@@ -1624,6 +1660,12 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
       if(top_lid .and. k.eq.k_end+1)rhs(i,k)=0.
     ENDDO
     ENDDO
+#ifdef BENCH
+    bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+    advance_w_rhs_accum = advance_w_rhs_accum + bench_dt_local
+    bench_t0_local = rsl_internal_microclock()
+#endif
 !  lower boundary condition on w
 !   Comments on map scale factors:
 !   Chain rule: if Z=Z(X,Y) [true at the surface] then
@@ -1701,6 +1743,12 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
        w (i,k,j)=w (i,k,j)-gamma(i,k,j)*w(i,k+1,j)
     ENDDO
     ENDDO
+#ifdef BENCH
+    bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+    advance_w_wsolve_accum = advance_w_wsolve_accum + bench_dt_local
+    bench_t0_local = rsl_internal_microclock()
+#endif
 
     IF (config_flags%damp_opt .eq. 3) THEN
       DO k=k_end+1,2,-1
@@ -1717,6 +1765,12 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
       ENDDO
       ENDDO
     ENDIF
+#ifdef BENCH
+    bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+    advance_w_damp_accum = advance_w_damp_accum + bench_dt_local
+    bench_t0_local = rsl_internal_microclock()
+#endif
 
     DO k=k_end+1,2,-1
     WRF_ACC_ADVANCE_W_LOCAL_LOOP
@@ -1725,6 +1779,12 @@ SUBROUTINE advance_w( w, rw_tend, ww, w_save, u, v,  &
                       *w(i,k,j)/(c1f(k)*muts(i,j)+c2f(k))
     ENDDO
     ENDDO
+#ifdef BENCH
+    bench_dt_local = rsl_internal_microclock() - bench_t0_local
+!$OMP ATOMIC UPDATE
+    advance_w_ph_accum = advance_w_ph_accum + bench_dt_local
+    bench_t0_local = rsl_internal_microclock()
+#endif
 
   ENDDO j_loop_w
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES)
