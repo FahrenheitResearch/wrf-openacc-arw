@@ -12,9 +12,9 @@ Current public handoff docs:
 
 Validated public checkpoint at this session boundary:
 
-- single-domain NVHPC/OpenACC short control: `115 s`, `exit 0`, `6 wrfout`
-- single-domain experimental host-fence lane: `159-160 s`, `exit 0`, `6 wrfout`
-- nested MPI/OpenACC short smoke: `nested-smoke-2021-mpi-short-init-bc-device`, passes invariant checks through `2021-12-30_17:05:00`
+- single-domain NVHPC/OpenACC short control: `114 s`, `exit 0`, `6 wrfout`
+- single-domain experimental host-fence lane: `159 s`, `exit 0`, `6 wrfout`
+- nested MPI/OpenACC short smoke: `nested-smoke-2021-mpi-short-init-bc-slices`, passes invariant checks through `2021-12-30_17:05:00`
 
 Current blocker:
 

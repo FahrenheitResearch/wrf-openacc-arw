@@ -10,7 +10,7 @@ Public-repo note: this report is committed as a checkpoint document, and the cor
 The repository moved materially past the original public checkpoint after this report was first written.
 
 - The retained experimental host-fence lane is now in the `159 s` class, not the older `376 s` class.
-- The retained default short control remains in the `113-114 s` class.
+- The retained default short control remains in the `114 s` class.
 - The retained small-step line includes the `advance_w` caller-scratch hoist and the corrected host-side `calc_coef_w` path in `solve_em.F`.
 - A missing `calc_coef_w` call in the compiled host-fence path was found by checking the actual preprocessed build and then fixed.
 - A device-side `calc_coef_w` ownership attempt was tested and rejected because it regressed to `176 s`; the active branch remains on the faster corrected host-side coefficient build.
@@ -24,8 +24,11 @@ The repository moved materially past the original public checkpoint after this r
 - The next retained ownership cut moved the earlier init-side host/device boundary in `dyn_em/solve_em.F`: on the supported non-periodic host-fence path, the code now returns to device immediately after `HALO_EM_B` / `PERIOD_BDY_EM_B`, so the `set_phys_bc2_tim` small-step boundary block runs device-side instead of staying inside the broader init host island.
 - That init-side cut passed the real nested MPI/OpenACC witness in `nested-smoke-2021-mpi-short-init-bc-device` through `2021-12-30_17:05:00` with invariant checks passing, and its parent-domain timing stayed essentially flat against the repinned baseline (`11.21 s` mean on `d01` versus `11.16 s` on `nested-smoke-2021-mpi-short-tail-contract-repin2`), so it is a retained ownership cleanup rather than a measured speed win.
 - Refreshed remote short validations on that retained init-side branch held the same default band and a near-flat host-fence band: `20260413T012149Z-initbc-default = 115 s` and `20260413T012149Z-initbc-hostfences = 160 s`.
+- The latest retained refinement keeps that same init-side control cut but shrinks its device return traffic on the supported non-periodic path: `frame/module_gpu_runtime.F` now returns the physical-BC subset and the later init-body subset as halo-slab region syncs instead of two full-array repushes.
+- That slice-sync refinement passed the real nested MPI/OpenACC witness in `nested-smoke-2021-mpi-short-init-bc-slices` through `2021-12-30_17:05:00` with invariant checks passing, and it modestly improved the parent-domain mean against both the earlier init-side cut and the repinned baseline (`11.14 s` mean on `d01` versus `11.21 s` on `nested-smoke-2021-mpi-short-init-bc-device` and `11.16 s` on `nested-smoke-2021-mpi-short-tail-contract-repin2`).
+- Refreshed remote short validations on the retained slice-sync branch also held the control bands: `20260413T014001Z-initbcslices-default = 114 s` and `20260413T014001Z-initbcslices-hostfences = 159 s`.
 - A direct `RSL_LITE_PACK` fast-path rewrite in `external/RSL_LITE/c_code.c` was tested on the real MPI witness and rejected because it regressed `d01` timings; that experiment is fully backed out.
-- The latest retained nested MPI smoke is `nested-smoke-2021-mpi-short-init-bc-device`, which finished `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing.
+- The latest retained nested MPI smoke is `nested-smoke-2021-mpi-short-init-bc-slices`, which finished `SUCCESS COMPLETE WRF` through `2021-12-30_17:05:00` with invariant checks passing.
 
 The main blocker description is also sharper than in the original text below: the current next coarse ownership cut is the nonhydro `small_step_em` / `solve_em` segment around post-`sumflux` boundary updates, the second `calc_p_rho`, and the `p`-halo exchange.
 

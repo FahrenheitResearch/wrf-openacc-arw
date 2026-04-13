@@ -42,6 +42,8 @@ MODULE module_gpu_runtime
    PUBLIC :: wrf_gpu_smallstep_prep_host_fence_end
    PUBLIC :: wrf_gpu_smallstep_init_host_fence_begin
    PUBLIC :: wrf_gpu_smallstep_init_host_fence_end
+   PUBLIC :: wrf_gpu_smallstep_init_phys_bc_host_fence_end
+   PUBLIC :: wrf_gpu_smallstep_init_body_host_fence_end
    PUBLIC :: wrf_gpu_smallstep_early_host_fence_end
    PUBLIC :: wrf_gpu_smallstep_finish_host_fence_begin
    PUBLIC :: wrf_gpu_smallstep_finish_host_fence_end
@@ -613,55 +615,167 @@ CONTAINS
 
    END SUBROUTINE wrf_gpu_smallstep_prep_host_fence_end
 
-   SUBROUTINE wrf_gpu_smallstep_init_host_fence_begin( grid )
+   SUBROUTINE wrf_gpu_smallstep_init_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
 
       TYPE(domain), INTENT(INOUT) :: grid
+      INTEGER, INTENT(IN), OPTIONAL :: ips, ipe, jps, jpe, kps, kpe, halo_pad
       INTEGER :: domain_slot
+      INTEGER :: halo_width
 
       domain_slot = wrf_gpu_domain_get_slot( grid%id, .FALSE. )
       IF ( domain_slot .LE. 0 ) RETURN
       IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
 
-      CALL wrf_gpu_sync_real_3d_ref( grid%ph_2,    WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%al,      WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%p,       WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%t_1,     WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%t_save,  WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%u_save,  WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%v_save,  WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mu_1,    WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mu_2,    WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mudf,    WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%php,     WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%alt,     WRF_GPU_SYNC_TO_HOST )
-      CALL wrf_gpu_sync_real_3d_ref( grid%pb,      WRF_GPU_SYNC_TO_HOST )
+      IF ( PRESENT(ips) .AND. PRESENT(ipe) .AND. PRESENT(jps) .AND. PRESENT(jpe) .AND. &
+           PRESENT(kps) .AND. PRESENT(kpe) ) THEN
+         halo_width = 1
+         IF ( PRESENT(halo_pad) ) halo_width = MAX( 1, halo_pad )
+
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%ph_2,   ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%al,     ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%p,      ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%t_1,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%t_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%u_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%v_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mu_1,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mu_2,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mudf,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%php,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%alt,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%pb,     ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_HOST )
+      ELSE
+         CALL wrf_gpu_sync_real_3d_ref( grid%ph_2,    WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%al,      WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%p,       WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%t_1,     WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%t_save,  WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%u_save,  WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%v_save,  WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_1,    WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_2,    WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mudf,    WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%php,     WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%alt,     WRF_GPU_SYNC_TO_HOST )
+         CALL wrf_gpu_sync_real_3d_ref( grid%pb,      WRF_GPU_SYNC_TO_HOST )
+      END IF
 
    END SUBROUTINE wrf_gpu_smallstep_init_host_fence_begin
 
-   SUBROUTINE wrf_gpu_smallstep_init_host_fence_end( grid )
+   SUBROUTINE wrf_gpu_smallstep_init_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
 
       TYPE(domain), INTENT(INOUT) :: grid
+      INTEGER, INTENT(IN), OPTIONAL :: ips, ipe, jps, jpe, kps, kpe, halo_pad
       INTEGER :: domain_slot
+      INTEGER :: halo_width
 
       domain_slot = wrf_gpu_domain_get_slot( grid%id, .FALSE. )
       IF ( domain_slot .LE. 0 ) RETURN
       IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
 
-      CALL wrf_gpu_sync_real_3d_ref( grid%ph_2,    WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%al,      WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%p,       WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%t_1,     WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%t_save,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%u_save,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%v_save,  WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mu_1,    WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mu_2,    WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_2d_ref( grid%mudf,    WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%php,     WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%alt,     WRF_GPU_SYNC_TO_DEVICE )
-      CALL wrf_gpu_sync_real_3d_ref( grid%pb,      WRF_GPU_SYNC_TO_DEVICE )
+      IF ( PRESENT(ips) .AND. PRESENT(ipe) .AND. PRESENT(jps) .AND. PRESENT(jpe) .AND. &
+           PRESENT(kps) .AND. PRESENT(kpe) ) THEN
+         halo_width = 1
+         IF ( PRESENT(halo_pad) ) halo_width = MAX( 1, halo_pad )
+
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%ph_2,   ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%al,     ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%p,      ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%t_1,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%t_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%u_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%v_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mu_1,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mu_2,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mudf,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%php,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%alt,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%pb,     ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+      ELSE
+         CALL wrf_gpu_sync_real_3d_ref( grid%ph_2,    WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%al,      WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%p,       WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%t_1,     WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%t_save,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%u_save,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%v_save,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_1,    WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_2,    WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mudf,    WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%php,     WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%alt,     WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%pb,      WRF_GPU_SYNC_TO_DEVICE )
+      END IF
 
    END SUBROUTINE wrf_gpu_smallstep_init_host_fence_end
+
+   SUBROUTINE wrf_gpu_smallstep_init_phys_bc_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
+
+      TYPE(domain), INTENT(INOUT) :: grid
+      INTEGER, INTENT(IN), OPTIONAL :: ips, ipe, jps, jpe, kps, kpe, halo_pad
+      INTEGER :: domain_slot
+      INTEGER :: halo_width
+
+      domain_slot = wrf_gpu_domain_get_slot( grid%id, .FALSE. )
+      IF ( domain_slot .LE. 0 ) RETURN
+      IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
+
+      IF ( PRESENT(ips) .AND. PRESENT(ipe) .AND. PRESENT(jps) .AND. PRESENT(jpe) .AND. &
+           PRESENT(kps) .AND. PRESENT(kpe) ) THEN
+         halo_width = 1
+         IF ( PRESENT(halo_pad) ) halo_width = MAX( 1, halo_pad )
+
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%ph_2,   ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%al,     ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%p,      ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%t_1,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%t_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mu_1,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mu_2,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref_region( grid%mudf,   ips-halo_width, ipe+halo_width, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+      ELSE
+         CALL wrf_gpu_sync_real_3d_ref( grid%ph_2,    WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%al,      WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%p,       WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%t_1,     WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%t_save,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_1,    WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mu_2,    WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_2d_ref( grid%mudf,    WRF_GPU_SYNC_TO_DEVICE )
+      END IF
+
+   END SUBROUTINE wrf_gpu_smallstep_init_phys_bc_host_fence_end
+
+   SUBROUTINE wrf_gpu_smallstep_init_body_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, halo_pad )
+
+      TYPE(domain), INTENT(INOUT) :: grid
+      INTEGER, INTENT(IN), OPTIONAL :: ips, ipe, jps, jpe, kps, kpe, halo_pad
+      INTEGER :: domain_slot
+      INTEGER :: halo_width
+
+      domain_slot = wrf_gpu_domain_get_slot( grid%id, .FALSE. )
+      IF ( domain_slot .LE. 0 ) RETURN
+      IF ( .NOT. wrf_gpu_domain_slot_device_data_ready(domain_slot) ) RETURN
+
+      IF ( PRESENT(ips) .AND. PRESENT(ipe) .AND. PRESENT(jps) .AND. PRESENT(jpe) .AND. &
+           PRESENT(kps) .AND. PRESENT(kpe) ) THEN
+         halo_width = 1
+         IF ( PRESENT(halo_pad) ) halo_width = MAX( 1, halo_pad )
+
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%u_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%v_save, ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%php,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%alt,    ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref_region( grid%pb,     ips-halo_width, ipe+halo_width, kps, kpe, jps-halo_width, jpe+halo_width, WRF_GPU_SYNC_TO_DEVICE )
+      ELSE
+         CALL wrf_gpu_sync_real_3d_ref( grid%u_save,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%v_save,  WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%php,     WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%alt,     WRF_GPU_SYNC_TO_DEVICE )
+         CALL wrf_gpu_sync_real_3d_ref( grid%pb,      WRF_GPU_SYNC_TO_DEVICE )
+      END IF
+
+   END SUBROUTINE wrf_gpu_smallstep_init_body_host_fence_end
 
    SUBROUTINE wrf_gpu_smallstep_early_host_fence_end( grid )
 

@@ -87,6 +87,8 @@ SUBROUTINE solve_em ( grid , config_flags  &
                                   wrf_gpu_smallstep_prep_host_fence_end,        &
                                   wrf_gpu_smallstep_init_host_fence_begin,      &
                                   wrf_gpu_smallstep_init_host_fence_end,        &
+                                  wrf_gpu_smallstep_init_phys_bc_host_fence_end,&
+                                  wrf_gpu_smallstep_init_body_host_fence_end,   &
                                   wrf_gpu_smallstep_early_host_fence_end,       &
                                   wrf_gpu_smallstep_nonhydro_tail_host_fence_begin, &
                                   wrf_gpu_smallstep_nonhydro_tail_host_fence_end,   &
@@ -1214,9 +1216,13 @@ BENCH_END(small_step_prep_tim)
 #endif
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
-     CALL wrf_gpu_smallstep_init_host_fence_begin( grid )
      smallstep_use_device_init_phys_bc = smallstep_phys_bc_tail_supported( config_flags ) .AND. &
                                          .NOT. ( config_flags%periodic_x .OR. config_flags%periodic_y )
+     IF ( smallstep_use_device_init_phys_bc ) THEN
+        CALL wrf_gpu_smallstep_init_host_fence_begin( grid, ips, ipe, jps, jpe, kps, kpe, 1 )
+     ELSE
+        CALL wrf_gpu_smallstep_init_host_fence_begin( grid )
+     END IF
 #else
      smallstep_use_device_init_phys_bc = .FALSE.
 #endif
@@ -1261,7 +1267,7 @@ BENCH_END(small_step_prep_tim)
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
      IF ( smallstep_use_device_init_phys_bc ) THEN
-        CALL wrf_gpu_smallstep_init_host_fence_end( grid )
+        CALL wrf_gpu_smallstep_init_phys_bc_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, 1 )
      END IF
 #endif
 
@@ -1423,7 +1429,9 @@ BENCH_START(set_phys_bc2_tim)
 BENCH_END(set_phys_bc2_tim)
 
 #if defined(WRF_OPENACC_USE_ACCEL_LIB) && defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_HOST_FENCES) && !defined(WRF_OPENACC_EXPERIMENTAL_SMALLSTEP_PREP)
-     IF ( .NOT. smallstep_use_device_init_phys_bc ) THEN
+     IF ( smallstep_use_device_init_phys_bc ) THEN
+        CALL wrf_gpu_smallstep_init_body_host_fence_end( grid, ips, ipe, jps, jpe, kps, kpe, 1 )
+     ELSE
         CALL wrf_gpu_smallstep_init_host_fence_end( grid )
      END IF
 #endif
